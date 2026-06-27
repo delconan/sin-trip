@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   calculateFamilyPrice,
   detectScheduleWarnings,
+  estimateFamilyRouteFare,
   estimateRoutes,
   getEndTime,
   recommendRoute,
@@ -65,5 +66,31 @@ describe("planner domain rules", () => {
     );
     expect(routes.map((route) => route.mode)).toEqual(["walk", "transit", "taxi"]);
     expect(routes.find((route) => route.recommended)?.mode).toBe("walk");
+  });
+
+  it("shows walking as free for the whole family", () => {
+    expect(estimateFamilyRouteFare({ mode: "walk", distanceMeters: 900 }, "10:00")).toMatchObject({
+      min: 0,
+      max: 0,
+      label: "S$0",
+    });
+  });
+
+  it("calculates a public-transport family range from adult and child fare bands", () => {
+    expect(estimateFamilyRouteFare({ mode: "transit", distanceMeters: 5000 }, "10:00")).toMatchObject({
+      min: 4.3,
+      max: 6,
+      label: "S$4.30–6.00",
+    });
+  });
+
+  it("widens a taxi estimate during evening surcharge hours", () => {
+    const daytime = estimateFamilyRouteFare({ mode: "taxi", distanceMeters: 12000 }, "14:00");
+    const evening = estimateFamilyRouteFare({ mode: "taxi", distanceMeters: 12000 }, "19:00");
+
+    expect(daytime.min).toBe(12.4);
+    expect(evening.min).toBe(12.4);
+    expect(evening.max).toBeGreaterThan(daytime.max);
+    expect(evening.label).toMatch(/^S\$12\.40–/);
   });
 });

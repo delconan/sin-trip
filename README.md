@@ -14,7 +14,7 @@ npm run dev
 ## 启用多设备同步
 
 1. 创建 Supabase 项目，在 Authentication → Providers 中启用 Anonymous Sign-Ins。
-2. 使用 Supabase SQL Editor 执行 `supabase/migrations/202606280001_initial_schema.sql`。
+2. 使用 Supabase SQL Editor 按文件名顺序执行 `supabase/migrations/` 中的 SQL；已有项目至少需要补执行 `202606280002_day_titles.sql`。
 3. 复制 `.env.example` 为 `.env.local`，填入 Supabase URL、publishable key 与 service role key。
 4. 创建 OneMap API 账号，填写 `ONEMAP_API_EMAIL` 与 `ONEMAP_API_PASSWORD`。
 5. 重启开发服务器。首次打开会自动创建行程，并把地址改为 `/trip#<私密令牌>`。
@@ -36,4 +36,3 @@ npm run test:e2e
 ```
 
 票价数据核对日期为 2026-06-27；应用只提供来源与预算参考，不处理付款。OneMap 暂不可用时会回退到本地估时，并保留 Google Maps 导航入口。
-

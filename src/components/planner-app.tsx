@@ -44,10 +44,13 @@ import {
 import { FormEvent, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { airport, hotel, tripDays } from "@/data/seed";
+import { EditableDayTitle } from "@/components/editable-day-title";
+import { RouteComparisonDialog } from "@/components/route-comparison-dialog";
 import {
   detectScheduleWarnings,
   estimateRoutes,
   getEndTime,
+  recommendRoute,
   sortDayItems,
 } from "@/lib/planner";
 import { createInitialState, tripReducer } from "@/lib/trip-state";
@@ -154,6 +157,7 @@ function ScheduledCard({
 }
 
 function RouteRibbon({ from, to, date, departureTime, hasLuggage = false }: { from: Pick<ActivityCard, "title" | "latitude" | "longitude">; to: Pick<ActivityCard, "title" | "latitude" | "longitude">; date: string; departureTime: string; hasLuggage?: boolean }) {
+  const [comparisonOpen, setComparisonOpen] = useState(false);
   const fallbackRoutes = useMemo(() => estimateRoutes(from, to, departureTime, hasLuggage), [from, to, departureTime, hasLuggage]);
   const query = useQuery({
     queryKey: ["route", from.latitude, from.longitude, to.latitude, to.longitude, date, departureTime, hasLuggage],
@@ -165,20 +169,25 @@ function RouteRibbon({ from, to, date, departureTime, hasLuggage = false }: { fr
     enabled: process.env.NODE_ENV !== "test",
     staleTime: 6 * 60 * 60 * 1000,
   });
-  const routes = query.data?.routes ?? fallbackRoutes;
+  const mergedRoutes = fallbackRoutes.map((fallback) => query.data?.routes.find((route) => route.mode === fallback.mode) ?? fallback);
+  const recommendation = recommendRoute(mergedRoutes, { departureTime, hasLuggage });
+  const routes = mergedRoutes.map((option) => ({ ...option, recommended: option.mode === recommendation?.mode }));
   const route = routes.find((option) => option.recommended) ?? routes[0];
   const Icon = routeIcon[route.mode];
   return (
-    <a className="route-ribbon" href={route.mapsUrl} target="_blank" rel="noreferrer" title={routes.map((option) => `${option.mode}: ${option.durationMinutes}分钟`).join(" · ")}>
-      <span className="route-dash" />
-      <Icon size={14} />
-      <span>{route.mode === "taxi" ? "打车" : route.mode === "transit" ? "公交/MRT" : "步行"} {route.durationMinutes} 分钟</span>
-      <ArrowRight size={12} />
-    </a>
+    <>
+      <button className="route-ribbon" onClick={() => setComparisonOpen(true)} aria-label={`查看 ${from.title} 到 ${to.title} 的交通方案`} title="点击比较步行、公交和打车">
+        <span className="route-dash" />
+        <Icon size={14} />
+        <span>{route.mode === "taxi" ? "打车" : route.mode === "transit" ? "公交/MRT" : "步行"} {route.durationMinutes} 分钟</span>
+        <ArrowRight size={12} />
+      </button>
+      {comparisonOpen && <RouteComparisonDialog fromTitle={from.title} toTitle={to.title} departureTime={departureTime} routes={routes} onClose={() => setComparisonOpen(false)} />}
+    </>
   );
 }
 
-function DayColumn({ date, items, cards, dispatch, onSelect }: { date: (typeof tripDays)[number]; items: ScheduledItem[]; cards: ActivityCard[]; dispatch: React.Dispatch<Parameters<typeof tripReducer>[1]>; onSelect: (card: ActivityCard) => void }) {
+function DayColumn({ date, title, items, cards, dispatch, onSelect }: { date: (typeof tripDays)[number]; title: string; items: ScheduledItem[]; cards: ActivityCard[]; dispatch: React.Dispatch<Parameters<typeof tripReducer>[1]>; onSelect: (card: ActivityCard) => void }) {
   const { setNodeRef, isOver } = useDroppable({ id: `day:${date.date}` });
   const sorted = sortDayItems(items);
   const cardFor = (item: ScheduledItem) => cards.find((card) => card.id === item.cardId)!;
@@ -188,7 +197,7 @@ function DayColumn({ date, items, cards, dispatch, onSelect }: { date: (typeof t
     <section ref={setNodeRef} data-testid="day-column" className={`day-column ${isOver ? "is-over" : ""}`}>
       <header className="day-header">
         <div className="date-stamp"><strong>{date.short}</strong><span>{date.weekday}</span></div>
-        <div><small>DAY {tripDays.findIndex((day) => day.date === date.date) + 1}</small><h2>{date.title}</h2></div>
+        <div><small>DAY {tripDays.findIndex((day) => day.date === date.date) + 1}</small><EditableDayTitle dateLabel={date.short} title={title} onSave={(nextTitle) => dispatch({ type: "set-day-title", date: date.date, title: nextTitle })} /></div>
       </header>
       <div className="day-route-start"><Hotel size={14} /> {date.date === "2026-07-07" ? "樟宜机场" : hotel.title}</div>
       {firstCard && firstCard.id !== "arrival" && <RouteRibbon from={date.date === "2026-07-07" ? airport : hotel} to={firstCard} date={date.date} departureTime={sorted[0].startTime} hasLuggage={date.date === "2026-07-07"} />}
@@ -432,10 +441,10 @@ export function PlannerApp() {
           <section className={`board-panel ${mobileTab === "plan" ? "mobile-active" : ""}`}>
             <div className="board-topline">
               <div><span className="route-legend"><Walking /> 步行</span><span className="route-legend"><TrainFront /> MRT / 公交</span><span className="route-legend"><BusFront /> 打车</span></div>
-              <p><Info />交通为 OneMap 未连接时的本地估时，点开可用 Google Maps 导航</p>
+              <p><Info />点击交通线比较步行、公交与打车；OneMap 未连接时使用本地估时</p>
             </div>
             <div className="days-board">
-              {tripDays.map((day) => <DayColumn key={day.date} date={day} items={state.scheduledItems.filter((item) => item.date === day.date)} cards={state.cards} dispatch={dispatch} onSelect={setSelected} />)}
+              {tripDays.map((day) => <DayColumn key={day.date} date={day} title={state.dayTitles[day.date] ?? day.title} items={state.scheduledItems.filter((item) => item.date === day.date)} cards={state.cards} dispatch={dispatch} onSelect={setSelected} />)}
             </div>
           </section>
         </div>

@@ -6,6 +6,7 @@ create table public.trips (
   title text not null,
   timezone text not null default 'Asia/Singapore',
   party jsonb not null default '{}'::jsonb,
+  day_titles jsonb not null default '{}'::jsonb,
   revision bigint not null default 1,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -74,6 +75,7 @@ create policy "members read itinerary" on public.scheduled_items
 create or replace function public.replace_trip_state(
   p_trip_id uuid,
   p_expected_revision bigint,
+  p_day_titles jsonb,
   p_cards jsonb,
   p_items jsonb
 )
@@ -90,7 +92,7 @@ begin
   end if;
 
   update public.trips
-  set revision = revision + 1, updated_at = now()
+  set revision = revision + 1, day_titles = p_day_titles, updated_at = now()
   where id = p_trip_id and revision = p_expected_revision
   returning revision into next_revision;
 
@@ -112,7 +114,7 @@ begin
 end;
 $$;
 
-grant execute on function public.replace_trip_state(uuid, bigint, jsonb, jsonb) to authenticated;
+grant execute on function public.replace_trip_state(uuid, bigint, jsonb, jsonb, jsonb) to authenticated;
 
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values ('trip-images', 'trip-images', false, 5242880, array['image/jpeg','image/png','image/webp'])
@@ -133,4 +135,3 @@ create policy "trip members upload images" on storage.objects
   );
 
 alter publication supabase_realtime add table public.trips;
-

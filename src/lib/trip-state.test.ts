@@ -1,7 +1,39 @@
 import { describe, expect, it } from "vitest";
-import { createInitialState, tripReducer } from "./trip-state";
+import { createInitialState, normalizeTripState, tripReducer } from "./trip-state";
 
 describe("trip state", () => {
+  it("seeds editable titles for every trip day", () => {
+    expect(createInitialState().dayTitles).toMatchObject({
+      "2026-07-08": "Mandai 像素与夜行",
+      "2026-07-10": "鸭子船 · 返程",
+    });
+  });
+
+  it("trims and saves an edited day title", () => {
+    const state = createInitialState();
+    const next = tripReducer(state, {
+      type: "set-day-title",
+      date: "2026-07-08",
+      title: "  动物世界日  ",
+    });
+
+    expect(next.dayTitles["2026-07-08"]).toBe("动物世界日");
+    expect(next.revision).toBe(state.revision + 1);
+    expect(() => tripReducer(state, { type: "set-day-title", date: "2026-07-08", title: "   " })).toThrow("1–40");
+    expect(() => tripReducer(state, { type: "set-day-title", date: "2026-07-08", title: "很".repeat(41) })).toThrow("1–40");
+  });
+
+  it("fills day titles when hydrating data saved by an older version", () => {
+    const state = createInitialState();
+    const normalized = normalizeTripState({
+      revision: state.revision,
+      cards: state.cards,
+      scheduledItems: state.scheduledItems,
+    });
+
+    expect(normalized.dayTitles["2026-07-08"]).toBe("Mandai 像素与夜行");
+  });
+
   it("adds a card to a day at the next 15 minute slot", () => {
     const state = createInitialState();
     const next = tripReducer(state, { type: "schedule", cardId: "orchard", date: "2026-07-07" });

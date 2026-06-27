@@ -23,3 +23,20 @@ test("mobile users can switch to the card library", async ({ page, isMobile }) =
   await expect(page.getByRole("heading", { name: "还想去哪里？" })).toBeVisible();
   await expect(page.getByRole("button", { name: "新建自定义活动" })).toBeVisible();
 });
+
+test("edits a day title and compares transport before opening Maps", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "编辑 Mandai 像素与夜行" }).click();
+  const titleInput = page.getByLabel("7月8日标题");
+  await titleInput.fill("动物世界日");
+  await titleInput.press("Enter");
+  await expect(page.getByRole("heading", { name: "动物世界日" })).toBeVisible();
+
+  await page.getByRole("button", { name: "查看 抵达樟宜机场 到 酒店入住与午休 的交通方案" }).click();
+  const dialog = page.getByRole("dialog", { name: "交通方案对比" });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole("heading", { name: "步行" })).toBeVisible();
+  await expect(dialog.getByRole("heading", { name: "公交 / MRT" })).toBeVisible();
+  await expect(dialog.getByRole("heading", { name: "打车" })).toBeVisible();
+  await expect(dialog.getByRole("link", { name: "步行 Google Maps 查询" })).toHaveAttribute("href", /google\.com\/maps/);
+});

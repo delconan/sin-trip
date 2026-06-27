@@ -63,9 +63,18 @@ export interface RouteOption {
   cachedAt?: string;
 }
 
+export interface RouteFareEstimate {
+  min: number;
+  max: number;
+  label: string;
+  note: string;
+  sourceUrl: string;
+  checkedAt: string;
+}
+
 export interface TripState {
   revision: number;
+  dayTitles: Record<string, string>;
   cards: ActivityCard[];
   scheduledItems: ScheduledItem[];
 }
-

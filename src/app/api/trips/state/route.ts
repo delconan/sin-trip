@@ -18,6 +18,7 @@ export async function PUT(request: NextRequest) {
   const { data, error } = await requestSupabase(authorization).rpc("replace_trip_state", {
     p_trip_id: tripId,
     p_expected_revision: expectedRevision,
+    p_day_titles: state.dayTitles,
     p_cards: state.cards,
     p_items: state.scheduledItems,
   });
@@ -25,4 +26,3 @@ export async function PUT(request: NextRequest) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ revision: Number(data) });
 }
-

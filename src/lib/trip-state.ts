@@ -1,4 +1,4 @@
-import { seedCards, seedSchedule } from "@/data/seed";
+import { seedCards, seedSchedule, tripDays } from "@/data/seed";
 import { getEndTime, sortDayItems } from "@/lib/planner";
 import type { ActivityCard, ScheduledItem, TripState } from "@/types/trip";
 
@@ -6,15 +6,23 @@ export type TripAction =
   | { type: "schedule"; cardId: string; date: string }
   | { type: "move"; itemId: string; date: string; position: number }
   | { type: "set-time"; itemId: string; startTime: string }
+  | { type: "set-day-title"; date: string; title: string }
   | { type: "remove-item"; itemId: string }
   | { type: "add-card"; card: ActivityCard }
   | { type: "delete-card"; cardId: string }
   | { type: "hydrate"; state: TripState }
   | { type: "reset" };
 
+const defaultDayTitles = () => Object.fromEntries(tripDays.map((day) => [day.date, day.title]));
+
+export function normalizeTripState(state: Omit<TripState, "dayTitles"> & { dayTitles?: Record<string, string> }): TripState {
+  return { ...state, dayTitles: { ...defaultDayTitles(), ...state.dayTitles } };
+}
+
 export function createInitialState(): TripState {
   return {
     revision: 1,
+    dayTitles: defaultDayTitles(),
     cards: structuredClone(seedCards),
     scheduledItems: structuredClone(seedSchedule),
   };
@@ -38,8 +46,17 @@ function nextTimeForDay(state: TripState, date: string) {
 }
 
 export function tripReducer(state: TripState, action: TripAction): TripState {
-  if (action.type === "hydrate") return action.state;
+  if (action.type === "hydrate") return normalizeTripState(action.state);
   if (action.type === "reset") return createInitialState();
+  if (action.type === "set-day-title") {
+    const title = action.title.trim();
+    if (title.length < 1 || title.length > 40) throw new Error("标题长度必须为 1–40 个字符");
+    return {
+      ...state,
+      revision: state.revision + 1,
+      dayTitles: { ...state.dayTitles, [action.date]: title },
+    };
+  }
   if (action.type === "schedule") {
     const item: ScheduledItem = {
       id: crypto.randomUUID(),
