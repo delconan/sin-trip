@@ -8,7 +8,7 @@ export const tripDays = [
 ] as const;
 
 const checkedAt = "2026-06-27";
-const img = (id: string) => `https://images.unsplash.com/${id}?auto=format&fit=crop&w=900&q=82`;
+const img = (id: string) => `/activity-images/${id}.webp`;
 
 export const hotel = {
   title: "Swissôtel The Stamford",
@@ -104,8 +104,8 @@ export const seedCards: ActivityCard[] = [
     price: { currency: "SGD", adult: 46, child: 40, familyTotal: 172, kind: "from", source: "official", checkedAt, sourceUrl: "https://www.minecraftexperience.com/singapore/" },
     bookingUrl: "https://www.minecraftexperience.com/singapore/",
     imageUrl: img("photo-1607988795691-3d0147b43231"),
-    imageCredit: "Unsplash / Minecraft Experience 资料链接见详情",
-    imageSourceUrl: "https://www.minecraftexperience.com/singapore/",
+    imageCredit: "Unsplash（项目资料链接见详情）",
+    imageSourceUrl: "https://unsplash.com/",
     constraints: ["12 岁及以下须成人陪同", "可能有较强声光效果"],
     tags: ["必玩", "室内", "Mandai", "预约"],
     accent: "leaf",
@@ -174,8 +174,8 @@ export const seedCards: ActivityCard[] = [
     price: { currency: "SGD", adult: 33, child: 33, familyTotal: 132, kind: "from", source: "klook", checkedAt, sourceUrl: "https://www.klook.com/activity/132-skyline-luge-singapore/", note: "Klook 优先；S$33 为官网固定票参考" },
     bookingUrl: "https://www.klook.com/activity/132-skyline-luge-singapore/",
     imageUrl: img("photo-1500530855697-b586d89ba3ee"),
-    imageCredit: "Unsplash / 官方资料链接见详情",
-    imageSourceUrl: "https://sentosa.skylineluge.com/",
+    imageCredit: "Unsplash（官方资料链接见详情）",
+    imageSourceUrl: "https://unsplash.com/",
     constraints: ["雨天可能暂停", "不可手持手机拍摄", "提前至少 24 小时购票"],
     tags: ["必玩", "Sentosa", "户外", "预约"],
     accent: "chilli",
@@ -263,8 +263,8 @@ export const seedCards: ActivityCard[] = [
     price: { currency: "SGD", adult: 36, child: 28, familyTotal: 128, kind: "exact", source: "official", checkedAt, sourceUrl: "https://www.citytours.sg/promotion/detail/122-captain-explorer-dukw-tour-duck" },
     bookingUrl: "https://www.klook.com/en-US/activity/1357-captain-explorer-dukw-tour-singapore/",
     imageUrl: img("photo-1565967511849-76a60a516170"),
-    imageCredit: "Unsplash / City Tours",
-    imageSourceUrl: "https://www.citytours.sg/promotion/detail/122-captain-explorer-dukw-tour-duck",
+    imageCredit: "Unsplash（City Tours 资料链接见详情）",
+    imageSourceUrl: "https://unsplash.com/",
     tags: ["亲子", "滨海湾", "酒店附近"],
     accent: "sky",
   },
@@ -282,8 +282,8 @@ export const seedCards: ActivityCard[] = [
     price: { currency: "SGD", adult: 49, kind: "from", source: "klook", checkedAt, sourceUrl: "https://www.klook.com/en-SG/activity/5526-the-original-ducktours-singapore/", note: "儿童价请在所选场次复核" },
     bookingUrl: "https://www.klook.com/en-SG/activity/5526-the-original-ducktours-singapore/",
     imageUrl: img("photo-1524230572899-a752b3835840"),
-    imageCredit: "Unsplash / DUCKtours",
-    imageSourceUrl: "https://www.ducktours.com.sg/",
+    imageCredit: "Unsplash（DUCKtours 资料链接见详情）",
+    imageSourceUrl: "https://unsplash.com/",
     tags: ["备选", "普通话", "滨海湾"],
     accent: "sun",
   },

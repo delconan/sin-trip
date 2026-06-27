@@ -44,4 +44,10 @@ describe("Singapore trip seed", () => {
   it("keeps activity durations on 15 minute increments", () => {
     expect(seedCards.every((card) => card.durationMinutes % 15 === 0)).toBe(true);
   });
+
+  it("serves seed photography from optimized local assets", () => {
+    const images = seedCards.flatMap((card) => card.imageUrl ? [card.imageUrl] : []);
+    expect(images.length).toBeGreaterThan(10);
+    expect(images.every((image) => image.startsWith("/activity-images/") && image.endsWith(".webp"))).toBe(true);
+  });
 });
