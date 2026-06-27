@@ -29,6 +29,37 @@ describe("trip state", () => {
     expect(() => tripReducer(state, { type: "set-time", itemId: "s-merlion", startTime: "18:42" })).toThrow("15 分钟");
   });
 
+  it("places a cross-day item before later activities when its time is changed", () => {
+    const moved = tripReducer(createInitialState(), {
+      type: "move",
+      itemId: "s-luge",
+      date: "2026-07-08",
+      position: 3,
+    });
+    const retimed = tripReducer(moved, { type: "set-time", itemId: "s-luge", startTime: "10:00" });
+    const orderedIds = retimed.scheduledItems
+      .filter((item) => item.date === "2026-07-08")
+      .sort((a, b) => a.position - b.position)
+      .map((item) => item.id);
+
+    expect(orderedIds.indexOf("s-luge")).toBeLessThan(orderedIds.indexOf("s-minecraft"));
+  });
+
+  it("keeps an upward drag at the requested position", () => {
+    const next = tripReducer(createInitialState(), {
+      type: "move",
+      itemId: "s-night",
+      date: "2026-07-08",
+      position: 0,
+    });
+    const orderedIds = next.scheduledItems
+      .filter((item) => item.date === "2026-07-08")
+      .sort((a, b) => a.position - b.position)
+      .map((item) => item.id);
+
+    expect(orderedIds[0]).toBe("s-night");
+  });
+
   it("creates and removes a custom card", () => {
     const state = createInitialState();
     const card = { ...state.cards[0], id: "custom-one", title: "临时活动", custom: true };

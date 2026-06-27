@@ -24,7 +24,7 @@ function reindex(items: ScheduledItem[]) {
   const dates = [...new Set(items.map((item) => item.date))];
   const result: ScheduledItem[] = [];
   for (const date of dates) {
-    sortDayItems(items.filter((item) => item.date === date)).forEach((item, position) => result.push({ ...item, position }));
+    items.filter((item) => item.date === date).forEach((item, position) => result.push({ ...item, position }));
   }
   return result;
 }
@@ -63,10 +63,19 @@ export function tripReducer(state: TripState, action: TripAction): TripState {
   if (action.type === "set-time") {
     const match = /^(\d{2}):(\d{2})$/.exec(action.startTime);
     if (!match || Number(match[2]) % 15 !== 0) throw new Error("时间必须落在 15 分钟刻度");
+    const target = state.scheduledItems.find((item) => item.id === action.itemId);
+    if (!target) return state;
+    const updated = state.scheduledItems.map((item) => item.id === action.itemId ? { ...item, startTime: action.startTime, version: (item.version ?? 0) + 1 } : item);
+    const targetDay = updated
+      .filter((item) => item.date === target.date)
+      .sort((a, b) => a.startTime.localeCompare(b.startTime) || a.position - b.position);
     return {
       ...state,
       revision: state.revision + 1,
-      scheduledItems: state.scheduledItems.map((item) => item.id === action.itemId ? { ...item, startTime: action.startTime, version: (item.version ?? 0) + 1 } : item),
+      scheduledItems: reindex([
+        ...updated.filter((item) => item.date !== target.date),
+        ...targetDay,
+      ]),
     };
   }
   if (action.type === "remove-item") {
