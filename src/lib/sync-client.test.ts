@@ -23,6 +23,7 @@ import { extractShareToken, makeShareUrl, syncErrorMessage, useTripSync } from "
 
 const token = "6fb2f2aa1e23415bbbd7022e9f43f888";
 const state = createInitialState();
+let channelStatus: ((status: string) => void) | undefined;
 
 beforeEach(() => {
   window.history.replaceState(null, "", "/");
@@ -30,7 +31,11 @@ beforeEach(() => {
   vi.restoreAllMocks();
   supabase.getSession.mockResolvedValue({ data: { session: { access_token: "access" } } });
   supabase.signInAnonymously.mockResolvedValue({ data: { session: { access_token: "access" } }, error: null });
-  supabase.subscribe.mockReturnValue({ id: "channel" });
+  channelStatus = undefined;
+  supabase.subscribe.mockImplementation((listener?: (status: string) => void) => {
+    channelStatus = listener;
+    return { id: "channel" };
+  });
 });
 
 describe("sync link helpers", () => {
@@ -59,6 +64,17 @@ describe("sync link helpers", () => {
     await waitFor(() => expect(result.current.status).toBe("synced"));
     expect(dispatch).toHaveBeenCalledWith({ type: "hydrate", state });
     expect(fetch).toHaveBeenCalledWith("/api/trips/join", expect.objectContaining({ method: "POST" }));
+  });
+
+  it("surfaces a realtime channel failure without clearing the trip", async () => {
+    window.history.replaceState(null, "", `/trip#${token}`);
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ tripId: "trip-1", state }), { status: 200 }));
+    const { result } = renderHook(() => useTripSync(state, vi.fn(), { localReady: true }));
+    await waitFor(() => expect(result.current.status).toBe("synced"));
+    act(() => channelStatus?.("CHANNEL_ERROR"));
+    expect(result.current.status).toBe("error");
+    expect(result.current.errorMessage).toContain("实时同步");
+    expect(result.current.tripId).toBe("trip-1");
   });
 
   it("creates a cloud trip from the supplied local snapshot and stores a backup", async () => {

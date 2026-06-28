@@ -93,7 +93,12 @@ export function useTripSync(
           setStatus("synced");
         }
       },
-    ).subscribe();
+    ).subscribe((channelStatus) => {
+      if (channelStatus === "CHANNEL_ERROR" || channelStatus === "TIMED_OUT" || channelStatus === "CLOSED") {
+        setErrorMessage("实时同步连接已断开，本机修改仍会保留；请检查网络后重试连接。");
+        setStatus("error");
+      }
+    });
   }, [clearChannel]);
 
   const connect = useCallback((id: string, token: string, cloudState: TripState, preserveNewerLocal: boolean) => {

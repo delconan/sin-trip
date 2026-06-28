@@ -182,7 +182,9 @@ test("moves a card across mobile days without horizontal dragging", async ({ pag
   await page.getByRole("button", { name: "确认移动" }).click();
   await expect(page.getByRole("tab", { name: /7月8日 周三 4项/ })).toHaveAttribute("aria-selected", "true");
   const visibleDay = page.getByTestId("day-column").filter({ hasText: "7月8日" });
-  await expect(visibleDay.getByText("Skyline Luge · 3 Rounds", { exact: true })).toBeVisible();
+  const movedCard = visibleDay.locator(".scheduled-card").filter({ hasText: "Skyline Luge · 3 Rounds" });
+  await expect(movedCard.getByText("Skyline Luge · 3 Rounds", { exact: true })).toBeVisible();
+  await expect(movedCard).toBeFocused();
   await expect(visibleDay.locator(".scheduled-card strong").first()).toHaveText("Skyline Luge · 3 Rounds");
 });
 

@@ -187,6 +187,8 @@ function ScheduledCard({
   return (
     <article
       ref={setNodeRef}
+      id={`scheduled-item-${item.id}`}
+      tabIndex={-1}
       style={{ transform: CSS.Transform.toString(transform), transition }}
       className={`scheduled-card accent-${card.accent ?? "leaf"} ${isDragging ? "is-dragging" : ""}`}
     >
@@ -737,9 +739,11 @@ export function PlannerApp() {
         card={movingCard}
         onClose={() => setMoveDraft(undefined)}
         onConfirm={({ date, startTime }) => {
-          dispatch({ type: "move-and-set-time", itemId: movingItem.id, date, startTime });
+          const movedItemId = movingItem.id;
+          dispatch({ type: "move-and-set-time", itemId: movedItemId, date, startTime });
           setSelectedMobileDate(date);
           setMoveDraft(undefined);
+          requestAnimationFrame(() => document.getElementById(`scheduled-item-${movedItemId}`)?.focus({ preventScroll: false }));
         }}
       />}
       {selected && <DetailDrawer key={`${selected.id}:${selected.durationMinutes}`} card={selected} onClose={() => setSelectedCardId(undefined)} onDuration={(durationMinutes) => dispatch({ type: "set-card-duration", cardId: selected.id, durationMinutes })} onToggleReservation={() => dispatch({ type: "toggle-reservation", cardId: selected.id })} onLocation={selected.custom ? (location) => dispatch({ type: "set-card-location", cardId: selected.id, location }) : undefined} onDelete={selected.custom ? () => { dispatch({ type: "delete-card", cardId: selected.id }); setSelectedCardId(undefined); } : undefined} />}
