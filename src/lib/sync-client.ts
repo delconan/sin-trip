@@ -65,8 +65,9 @@ export function useTripSync(
   const stateRef = useRef(state);
   const dispatchRef = useRef(dispatch);
   const channelRef = useRef<ReturnType<ReturnType<typeof browserSupabase>["channel"]> | undefined>(undefined);
-  stateRef.current = state;
-  dispatchRef.current = dispatch;
+
+  useEffect(() => { stateRef.current = state; }, [state]);
+  useEffect(() => { dispatchRef.current = dispatch; }, [dispatch]);
 
   const clearChannel = useCallback(() => {
     if (channelRef.current) {
@@ -113,9 +114,13 @@ export function useTripSync(
     const fragmentToken = extractShareToken(window.location.hash);
     if (!fragmentToken) {
       readyRef.current = false;
-      setErrorMessage(undefined);
-      setStatus("needs-cloud-action");
-      return;
+      let cancelled = false;
+      queueMicrotask(() => {
+        if (cancelled) return;
+        setErrorMessage(undefined);
+        setStatus("needs-cloud-action");
+      });
+      return () => { cancelled = true; };
     }
 
     let cancelled = false;

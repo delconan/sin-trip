@@ -541,8 +541,13 @@ export function PlannerApp() {
 
   useEffect(() => {
     const restored = readLocalTrip(localStorage, localTripStorageKey);
-    if (restored.state) dispatch({ type: "hydrate", state: restored.state });
-    setLocalStatus({ ready: true, hadStoredState: restored.hadStoredState });
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      if (restored.state) dispatch({ type: "hydrate", state: restored.state });
+      setLocalStatus({ ready: true, hadStoredState: restored.hadStoredState });
+    });
+    return () => { cancelled = true; };
   }, []);
 
   useEffect(() => {
