@@ -196,4 +196,13 @@ describe("PlannerApp", () => {
     expect(screen.getByText("— 17:30")).toBeInTheDocument();
     expect(screen.getByLabelText("Minecraft Experience 建议时长")).toHaveValue(90);
   });
+
+  it("keeps reservation status synchronized between itinerary and details", async () => {
+    const user = userEvent.setup();
+    renderPlanner();
+    await user.click(screen.getByText("Minecraft Experience"));
+    const drawer = screen.getByLabelText("Minecraft Experience 详情");
+    await user.click(within(drawer).getByRole("button", { name: "标记为已预约" }));
+    expect(screen.getAllByRole("button", { name: "标记为需预约" })).toHaveLength(2);
+  });
 });

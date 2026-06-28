@@ -76,6 +76,9 @@ button { color: inherit; }
 .candidate-copy { width:100%; display:grid; gap:5px; text-align:left; background:transparent; border:0; padding:9px 9px 7px; cursor:pointer; }
 .candidate-title { font:700 14px/1.05 var(--display); }
 .candidate-meta { color:var(--ink-soft); font-size:8.5px; display:flex; align-items:center; gap:3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.reservation-toggle { display:inline-flex; align-items:center; justify-content:center; gap:4px; border:1px solid var(--chilli); border-radius:99px; padding:6px 10px; background:rgba(225,84,56,.06); color:var(--chilli); cursor:pointer; font-size:10px; font-weight:800; }
+.reservation-toggle.is-booked { border-color:var(--leaf); background:rgba(63,112,90,.12); color:var(--leaf); }.reservation-toggle.is-compact { padding:3px 7px; font-size:8px; }
+.candidate-card>.reservation-toggle { margin:0 8px 7px; }.scheduled-card>.reservation-toggle { margin-top:6px; }
 .quick-add { border-top:1px dashed var(--line); padding:6px; display:flex; gap:3px; align-items:center; }
 .quick-add span { font-size:8px; margin-right:auto; color:var(--ink-soft); }
 .quick-add button { cursor:pointer; width:20px; height:20px; border:0; border-radius:50%; background:var(--paper-deep); font-size:8px; }
@@ -187,6 +190,7 @@ button { color: inherit; }
 .detail-drawer h2 { margin:0; font:700 38px/1 var(--display); }
 .drawer-subtitle { margin:6px 0 18px; color:var(--chilli); font-size:12px; font-weight:700; }
 .drawer-description { color:var(--ink-soft); font:16px/1.65 var(--display); }
+.drawer-reservation { display:flex; margin-top:12px; }
 .fact-list { display:grid; margin:22px 0; border-top:1px solid var(--line); }
 .fact-list>div { display:grid; grid-template-columns:110px 1fr; padding:11px 0; border-bottom:1px solid var(--line); }
 .fact-list dt { display:flex; gap:6px; align-items:center; color:var(--ink-soft); font-size:10px; }.fact-list dt svg { width:14px; }

@@ -53,6 +53,7 @@ import { airport, hotel, tripDays } from "@/data/seed";
 import { EditableDayTitle } from "@/components/editable-day-title";
 import { RouteComparisonDialog } from "@/components/route-comparison-dialog";
 import { ScheduledTimeEditor } from "@/components/scheduled-time-editor";
+import { ReservationToggle } from "@/components/reservation-toggle";
 import {
   detectScheduleWarnings,
   estimateRoutes,
@@ -110,7 +111,9 @@ function money(card: ActivityCard) {
   return price.note ?? "价格需复核";
 }
 
-function CandidateCard({ card, onSelect, onSchedule }: { card: ActivityCard; onSelect: () => void; onSchedule: (date: string) => void }) {
+const supportsReservation = (card: ActivityCard) => card.category === "attraction" || card.category === "food";
+
+function CandidateCard({ card, onSelect, onSchedule, onToggleReservation }: { card: ActivityCard; onSelect: () => void; onSchedule: (date: string) => void; onToggleReservation: () => void }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: `card:${card.id}` });
   return (
     <article
@@ -127,6 +130,7 @@ function CandidateCard({ card, onSelect, onSchedule }: { card: ActivityCard; onS
         <span className="candidate-title">{card.title}</span>
         <span className="candidate-meta"><Clock3 size={13} /> {card.durationMinutes} 分钟 · {money(card)}</span>
       </button>
+      {supportsReservation(card) && <ReservationToggle status={card.reservationStatus ?? "required"} onToggle={onToggleReservation} compact />}
       <div className="quick-add" aria-label={`把 ${card.title} 加入行程`}>
         <span>加入</span>
         {tripDays.map((day) => <button key={day.date} onClick={() => onSchedule(day.date)} aria-label={`加入${day.short}`}>{day.date.slice(-2).replace(/^0/, "")}</button>)}
@@ -143,6 +147,7 @@ function ScheduledCard({
   onTime,
   onRemove,
   onSelect,
+  onToggleReservation,
 }: {
   item: ScheduledItem;
   card: ActivityCard;
@@ -151,6 +156,7 @@ function ScheduledCard({
   onTime: (time: string) => void;
   onRemove: () => void;
   onSelect: () => void;
+  onToggleReservation: () => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: `item:${item.id}` });
   const warnings = detectScheduleWarnings({ item, card, previousEndTime: previousEnd, transferMinutes });
@@ -165,6 +171,7 @@ function ScheduledCard({
         <span className="tiny-stamp">{categoryLabel[card.category]}</span>
         <span><strong>{card.title}</strong><small><MapPin size={12} /> {card.subtitle ?? card.address.split(",")[0]}</small></span>
       </button>
+      {supportsReservation(card) && <ReservationToggle status={card.reservationStatus ?? "required"} onToggle={onToggleReservation} compact />}
       {warnings.length > 0 && <div className="warnings">{warnings.map((warning) => <span key={warning}>! {warning}</span>)}</div>}
       <button className="item-grip" {...listeners} {...attributes} aria-label={`移动 ${card.title}`}><GripVertical size={17} /></button>
       <button className="item-delete" onClick={onRemove} aria-label={`移除 ${card.title}`}><X size={14} /></button>
@@ -239,6 +246,7 @@ function DayColumn({ date, title, items, cards, dispatch, onSelect, dropProjecti
                   onTime={(startTime) => dispatch({ type: "set-time", itemId: item.id, startTime })}
                   onRemove={() => dispatch({ type: "remove-item", itemId: item.id })}
                   onSelect={() => onSelect(card)}
+                  onToggleReservation={() => dispatch({ type: "toggle-reservation", cardId: card.id })}
                 />
                 </div>
               </Fragment>
@@ -361,7 +369,7 @@ function CustomActivityDialog({ onClose, onSave }: { onClose: () => void; onSave
   );
 }
 
-function DetailDrawer({ card, onClose, onDuration, onLocation, onDelete }: { card: ActivityCard; onClose: () => void; onDuration: (durationMinutes: number) => void; onLocation?: (location: Pick<ActivityCard, "address" | "latitude" | "longitude">) => void; onDelete?: () => void }) {
+function DetailDrawer({ card, onClose, onDuration, onToggleReservation, onLocation, onDelete }: { card: ActivityCard; onClose: () => void; onDuration: (durationMinutes: number) => void; onToggleReservation: () => void; onLocation?: (location: Pick<ActivityCard, "address" | "latitude" | "longitude">) => void; onDelete?: () => void }) {
   const [durationDraft, setDurationDraft] = useState(String(card.durationMinutes));
   const [editingLocation, setEditingLocation] = useState(false);
   const [locationDraft, setLocationDraft] = useState(card.address);
@@ -424,6 +432,7 @@ function DetailDrawer({ card, onClose, onDuration, onLocation, onDelete }: { car
       <h2>{card.title}</h2>
       <p className="drawer-subtitle">{card.subtitle}</p>
       <p className="drawer-description">{card.description}</p>
+      {supportsReservation(card) && <div className="drawer-reservation"><ReservationToggle status={card.reservationStatus ?? "required"} onToggle={onToggleReservation} /></div>}
       <dl className="fact-list">
         <div><dt><Clock3 />建议时长</dt><dd className="duration-editor">
           <input
@@ -605,7 +614,7 @@ export function PlannerApp() {
             <div className="filter-row">{filters.map((item) => <button key={item.key} className={filter === item.key ? "active" : ""} onClick={() => setFilter(item.key)}>{item.label}</button>)}</div>
             <button className="create-card" onClick={() => setCustomOpen(true)} aria-label="新建自定义活动"><Plus />新建自定义活动<span>名称 · 地点 · 时长 · 图片</span></button>
             <div className="candidate-list">
-              {libraryCards.map((card) => <CandidateCard key={card.id} card={card} onSelect={() => setSelectedCardId(card.id)} onSchedule={(date) => dispatch({ type: "schedule", cardId: card.id, date })} />)}
+              {libraryCards.map((card) => <CandidateCard key={card.id} card={card} onSelect={() => setSelectedCardId(card.id)} onSchedule={(date) => dispatch({ type: "schedule", cardId: card.id, date })} onToggleReservation={() => dispatch({ type: "toggle-reservation", cardId: card.id })} />)}
               {libraryCards.length === 0 && <div className="empty-library"><Check />这些卡都已经上路了</div>}
             </div>
           </aside>
@@ -627,7 +636,7 @@ export function PlannerApp() {
         {activeDragItem && activeDragCard ? <div className="drag-overlay-card"><small>{activeDragItem.startTime}</small><strong>{activeDragCard.title}</strong><span>{activeDragCard.durationMinutes} 分钟</span></div> : null}
       </DragOverlay>
       {customOpen && <CustomActivityDialog onClose={() => setCustomOpen(false)} onSave={(card) => { dispatch({ type: "add-card", card }); setCustomOpen(false); setSelectedCardId(card.id); }} />}
-      {selected && <DetailDrawer key={`${selected.id}:${selected.durationMinutes}`} card={selected} onClose={() => setSelectedCardId(undefined)} onDuration={(durationMinutes) => dispatch({ type: "set-card-duration", cardId: selected.id, durationMinutes })} onLocation={selected.custom ? (location) => dispatch({ type: "set-card-location", cardId: selected.id, location }) : undefined} onDelete={selected.custom ? () => { dispatch({ type: "delete-card", cardId: selected.id }); setSelectedCardId(undefined); } : undefined} />}
+      {selected && <DetailDrawer key={`${selected.id}:${selected.durationMinutes}`} card={selected} onClose={() => setSelectedCardId(undefined)} onDuration={(durationMinutes) => dispatch({ type: "set-card-duration", cardId: selected.id, durationMinutes })} onToggleReservation={() => dispatch({ type: "toggle-reservation", cardId: selected.id })} onLocation={selected.custom ? (location) => dispatch({ type: "set-card-location", cardId: selected.id, location }) : undefined} onDelete={selected.custom ? () => { dispatch({ type: "delete-card", cardId: selected.id }); setSelectedCardId(undefined); } : undefined} />}
     </DndContext>
   );
 }
