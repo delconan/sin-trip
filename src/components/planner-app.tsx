@@ -51,6 +51,7 @@ import { FormEvent, Fragment, useEffect, useMemo, useReducer, useRef, useState }
 import { useQuery } from "@tanstack/react-query";
 import { airport, hotel, tripDays } from "@/data/seed";
 import { EditableDayTitle } from "@/components/editable-day-title";
+import { CloudTripEntry } from "@/components/cloud-trip-entry";
 import { RouteComparisonDialog } from "@/components/route-comparison-dialog";
 import { ScheduledTimeEditor } from "@/components/scheduled-time-editor";
 import { ReservationToggle } from "@/components/reservation-toggle";
@@ -63,11 +64,10 @@ import {
 } from "@/lib/planner";
 import { createInitialState, tripReducer } from "@/lib/trip-state";
 import { projectDrop, type DropProjection } from "@/lib/drag-projection";
+import { localTripStorageKey, readLocalTrip } from "@/lib/local-trip";
 import { resolvePlaceAddress, searchPlaces, type PlaceResult } from "@/lib/place-search";
 import { useTripSync } from "@/lib/sync-client";
 import type { ActivityCard, ActivityCategory, RouteMode, ScheduledItem } from "@/types/trip";
-
-const storageKey = "singapore-family-trip-v1";
 
 const filters: { key: "all" | ActivityCategory; label: string }[] = [
   { key: "all", label: "全部" },
@@ -480,7 +480,8 @@ function DetailDrawer({ card, onClose, onDuration, onToggleReservation, onLocati
 
 export function PlannerApp() {
   const [state, dispatch] = useReducer(tripReducer, undefined, createInitialState);
-  const sync = useTripSync(state, dispatch);
+  const [localStatus, setLocalStatus] = useState({ ready: false, hadStoredState: false });
+  const sync = useTripSync(state, dispatch, { localReady: localStatus.ready });
   const [filter, setFilter] = useState<(typeof filters)[number]["key"]>("all");
   const [query, setQuery] = useState("");
   const [selectedCardId, setSelectedCardId] = useState<string>();
@@ -488,20 +489,19 @@ export function PlannerApp() {
   const [mobileTab, setMobileTab] = useState<"library" | "plan">("plan");
   const [activeItemId, setActiveItemId] = useState<string>();
   const [dropProjection, setDropProjection] = useState<DropProjection>();
-  const loadedRef = useRef(false);
+  const [shareHint, setShareHint] = useState("");
+  const cloudEntryRef = useRef<HTMLDivElement>(null);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
   useEffect(() => {
-    const stored = localStorage.getItem(storageKey);
-    if (stored) {
-      try { dispatch({ type: "hydrate", state: JSON.parse(stored) }); } catch { localStorage.removeItem(storageKey); }
-    }
-    queueMicrotask(() => { loadedRef.current = true; });
+    const restored = readLocalTrip(localStorage, localTripStorageKey);
+    if (restored.state) dispatch({ type: "hydrate", state: restored.state });
+    setLocalStatus({ ready: true, hadStoredState: restored.hadStoredState });
   }, []);
 
   useEffect(() => {
-    if (loadedRef.current) localStorage.setItem(storageKey, JSON.stringify(state));
-  }, [state]);
+    if (localStatus.ready) localStorage.setItem(localTripStorageKey, JSON.stringify(state));
+  }, [localStatus.ready, state]);
 
   const libraryCards = useMemo(() => {
     const scheduledCardIds = new Set(state.scheduledItems.map((item) => item.cardId));
@@ -569,8 +569,14 @@ export function PlannerApp() {
   };
 
   const share = async () => {
-    await navigator.clipboard?.writeText(sync.shareUrl ?? window.location.href);
-    window.alert(sync.shareUrl ? "私密编辑链接已复制。拿到链接的人可以查看和修改这份行程。" : "当前链接已复制。本地演示数据保存在本机；配置 Supabase 后会自动启用跨设备同步。");
+    if (!sync.shareUrl) {
+      setShareHint("请先把当前行程保存到云端，再复制私密链接。");
+      cloudEntryRef.current?.scrollIntoView?.({ behavior: "smooth", block: "center" });
+      return;
+    }
+    await navigator.clipboard?.writeText(sync.shareUrl);
+    setShareHint("");
+    window.alert("私密编辑链接已复制。拿到链接的人可以查看和修改这份行程。");
   };
 
   const resetCloudAccess = async () => {
@@ -595,12 +601,29 @@ export function PlannerApp() {
             <div><Plane /><span><strong>7月7日 15:00</strong><small>抵达 SIN · 7月10日 16:00 离境</small></span></div>
           </div>
           <div className="top-actions">
-            <span className={`sync-badge sync-${sync.status}`}><span />{sync.status === "local" ? "本地演示" : sync.status === "connecting" ? "连接共享行程" : sync.status === "saving" ? "保存中" : sync.status === "synced" ? "已同步" : "同步需重试"}</span>
+            <span className={`sync-badge sync-${sync.status}`}><span />{sync.status === "local" ? "本地演示" : sync.status === "connecting" ? "连接共享行程" : sync.status === "needs-cloud-action" ? "待保存到云端" : sync.status === "creating" ? "建立共享行程" : sync.status === "saving" ? "保存中" : sync.status === "synced" ? "已同步" : "同步需重试"}</span>
             <button onClick={share}><Share2 size={16} />分享</button>
             {sync.tripId && <button onClick={resetCloudAccess}><ShieldCheck size={16} />重置访问</button>}
             <button onClick={reset}><RotateCcw size={16} />恢复底稿</button>
           </div>
         </header>
+
+        {shareHint && <p className="share-hint" role="status">{shareHint}</p>}
+        {!sync.tripId && (sync.status === "needs-cloud-action" || sync.status === "creating" || sync.status === "error") && (
+          <div ref={cloudEntryRef}>
+            <CloudTripEntry
+              hadStoredState={localStatus.hadStoredState}
+              busy={sync.status === "creating"}
+              errorMessage={sync.errorMessage}
+              onCreate={() => { void sync.createTrip(state); }}
+              onOpenToken={(token) => {
+                window.history.replaceState(null, "", `${window.location.origin}/trip#${token}`);
+                window.location.reload();
+              }}
+              onRetry={sync.retry}
+            />
+          </div>
+        )}
 
         <div className="mobile-tabs">
           <button className={mobileTab === "library" ? "active" : ""} onClick={() => setMobileTab("library")}><Menu />卡片库</button>

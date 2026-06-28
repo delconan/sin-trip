@@ -143,6 +143,18 @@ button { color: inherit; }
 .planner-footer { min-height:49px; position:relative; z-index:2; border-top:1px solid var(--line); padding:13px clamp(24px,4vw,64px); display:flex; justify-content:space-between; color:var(--ink-soft); font-size:8px; letter-spacing:.1em; }
 .planner-footer p { margin:0; }
 .mobile-tabs { display:none; }
+.share-hint { margin:10px 28px 0; padding:10px 14px; border:1px dashed rgba(225,84,56,.45); border-radius:12px; color:var(--chilli); background:rgba(255,250,240,.9); font-size:13px; }
+.cloud-trip-entry { position:relative; margin:18px 28px 4px; padding:20px 22px; display:grid; grid-template-columns:110px minmax(220px,1fr) minmax(300px,1.25fr); gap:20px; align-items:center; overflow:hidden; border:1px solid rgba(39,107,88,.28); border-radius:20px 8px 20px 8px; background:linear-gradient(125deg,rgba(255,250,240,.97),rgba(232,239,215,.94)); box-shadow:0 12px 32px rgba(45,71,52,.08); }
+.cloud-trip-entry::after { content:""; position:absolute; right:-32px; bottom:-46px; width:150px; height:120px; border:18px double rgba(225,84,56,.08); border-radius:50%; transform:rotate(-12deg); pointer-events:none; }
+.cloud-entry-stamp { width:94px; aspect-ratio:1; display:grid; place-content:center; justify-items:center; gap:7px; border:2px solid var(--leaf); border-radius:50%; color:var(--leaf); transform:rotate(-5deg); }
+.cloud-entry-stamp svg { width:26px; }.cloud-entry-stamp span { font-weight:800; font-size:9px; letter-spacing:.13em; }
+.cloud-entry-copy h2 { margin:3px 0 7px; font:700 22px/1.2 var(--display); color:var(--ink); }.cloud-entry-copy>p:last-child { margin:0; max-width:52ch; color:var(--ink-soft); font-size:13px; line-height:1.55; }
+.cloud-entry-error { padding:8px 10px; border-left:3px solid var(--chilli); background:rgba(225,84,56,.08); color:var(--chilli)!important; }
+.cloud-entry-actions { position:relative; z-index:1; display:grid; grid-template-columns:minmax(0,1fr) auto; gap:8px; align-items:end; }
+.cloud-entry-actions button { min-height:38px; border-radius:10px; border:1px solid rgba(39,107,88,.25); padding:9px 12px; font-weight:700; cursor:pointer; }.cloud-entry-actions button:disabled { opacity:.45; cursor:not-allowed; }
+.cloud-create { grid-column:1/-1; display:flex; align-items:center; justify-content:center; gap:7px; background:var(--leaf); color:#fff; }.cloud-create svg,.cloud-retry svg { width:16px; }
+.cloud-entry-actions label { display:grid; gap:4px; color:var(--ink-soft); font-size:10px; letter-spacing:.05em; }.cloud-link-field { display:flex; align-items:center; gap:7px; min-height:38px; padding:0 10px; border:1px solid rgba(39,107,88,.24); border-radius:10px; background:rgba(255,255,255,.62); }.cloud-link-field svg { width:14px; color:var(--leaf); }.cloud-link-field input { width:100%; min-width:0; border:0; outline:0; background:transparent; color:var(--ink); font-size:12px; }
+.cloud-open,.cloud-retry { background:rgba(255,255,255,.65); color:var(--leaf); }.cloud-retry { grid-column:1/-1; display:flex; align-items:center; justify-content:center; gap:6px; color:var(--chilli); }
 
 .modal-backdrop { position:fixed; z-index:100; inset:0; display:grid; place-items:center; padding:18px; background:rgba(15,38,33,.72); backdrop-filter:blur(8px); }
 .route-backdrop { z-index:130; }
@@ -223,6 +235,8 @@ button { color: inherit; }
 }
 
 @media (max-width: 760px) {
+  .share-hint { margin:10px 14px 0; }
+  .cloud-trip-entry { margin:14px; padding:17px; grid-template-columns:64px 1fr; gap:12px; border-radius:16px 6px 16px 6px; }.cloud-entry-stamp { width:58px; }.cloud-entry-stamp svg { width:19px; }.cloud-entry-stamp span { font-size:7px; }.cloud-entry-copy h2 { font-size:18px; }.cloud-entry-actions { grid-column:1/-1; grid-template-columns:1fr; }.cloud-create,.cloud-retry { grid-column:auto; }
   .hero { min-height:auto; grid-template-columns:58px 1fr; padding:18px; gap:12px; }
   .brand-mark { width:54px; height:54px; }.brand-mark span { font-size:20px; }.brand-mark small { display:none; }
   .hero h1 { font-size:34px; }.hero-copy>p:last-child { font-size:11px; }.hero-meta { grid-column:1/-1; grid-template-columns:1fr 1fr; }.top-actions { grid-column:1/-1; justify-content:flex-end; }

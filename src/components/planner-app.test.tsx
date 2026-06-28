@@ -5,12 +5,80 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DropIndicator, PlannerApp } from "./planner-app";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { createInitialState } from "@/lib/trip-state";
+
+const syncHook = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/sync-client", () => ({ useTripSync: syncHook }));
 
 const renderPlanner = () => render(<QueryClientProvider client={new QueryClient()}><PlannerApp /></QueryClientProvider>);
 
-beforeEach(() => localStorage.clear());
+beforeEach(() => {
+  localStorage.clear();
+  syncHook.mockReset();
+  syncHook.mockReturnValue({
+    status: "local",
+    errorMessage: undefined,
+    tripId: undefined,
+    shareUrl: undefined,
+    createTrip: vi.fn(),
+    retry: vi.fn(),
+    resetAccess: vi.fn(),
+  });
+});
 
 describe("PlannerApp", () => {
+  it("restores browser state before enabling cloud bootstrap", async () => {
+    const saved = createInitialState();
+    saved.dayTitles["2026-07-08"] = "我的动物日";
+    localStorage.setItem("singapore-family-trip-v1", JSON.stringify(saved));
+    renderPlanner();
+
+    expect(syncHook.mock.calls[0][2]).toEqual({ localReady: false });
+    await screen.findByRole("heading", { name: "我的动物日" });
+    expect(syncHook.mock.calls.at(-1)?.[2]).toEqual({ localReady: true });
+  });
+
+  it("offers explicit migration and sends the restored itinerary", async () => {
+    const saved = createInitialState();
+    saved.dayTitles["2026-07-08"] = "我的动物日";
+    localStorage.setItem("singapore-family-trip-v1", JSON.stringify(saved));
+    const createTrip = vi.fn().mockResolvedValue(true);
+    syncHook.mockReturnValue({ status: "needs-cloud-action", createTrip, retry: vi.fn(), resetAccess: vi.fn() });
+    const user = userEvent.setup();
+    renderPlanner();
+
+    await user.click(await screen.findByRole("button", { name: "保存当前行程到云端" }));
+    expect(createTrip).toHaveBeenCalledWith(expect.objectContaining({ dayTitles: expect.objectContaining({ "2026-07-08": "我的动物日" }) }));
+  });
+
+  it("never copies the bare home page as a share link", async () => {
+    syncHook.mockReturnValue({ status: "needs-cloud-action", createTrip: vi.fn(), retry: vi.fn(), resetAccess: vi.fn() });
+    const user = userEvent.setup();
+    const writeText = vi.spyOn(navigator.clipboard, "writeText");
+    renderPlanner();
+
+    await user.click(screen.getByRole("button", { name: "分享" }));
+    expect(writeText).not.toHaveBeenCalled();
+    expect(screen.getByText("请先把当前行程保存到云端，再复制私密链接。")).toBeVisible();
+  });
+
+  it("copies the complete private URL after sync", async () => {
+    syncHook.mockReturnValue({
+      status: "synced",
+      tripId: "trip-1",
+      shareUrl: "https://trip.example/trip#6fb2f2aa1e23415bbbd7022e9f43f888",
+      createTrip: vi.fn(),
+      retry: vi.fn(),
+      resetAccess: vi.fn(),
+    });
+    vi.spyOn(window, "alert").mockImplementation(() => undefined);
+    const user = userEvent.setup();
+    const writeText = vi.spyOn(navigator.clipboard, "writeText");
+    renderPlanner();
+    await user.click(screen.getByRole("button", { name: "分享" }));
+    expect(writeText).toHaveBeenCalledWith("https://trip.example/trip#6fb2f2aa1e23415bbbd7022e9f43f888");
+  });
+
   it("renders a clear drop-position indicator", () => {
     render(<DropIndicator />);
     expect(screen.getByText("放在这里")).toBeInTheDocument();
