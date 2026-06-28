@@ -62,6 +62,7 @@ import {
 } from "@/lib/planner";
 import { createInitialState, tripReducer } from "@/lib/trip-state";
 import { projectDrop, type DropProjection } from "@/lib/drag-projection";
+import { resolvePlaceAddress, searchPlaces, type PlaceResult } from "@/lib/place-search";
 import { useTripSync } from "@/lib/sync-client";
 import type { ActivityCard, ActivityCategory, RouteMode, ScheduledItem } from "@/types/trip";
 
@@ -255,46 +256,74 @@ function DayColumn({ date, title, items, cards, dispatch, onSelect, dropProjecti
 
 function CustomActivityDialog({ onClose, onSave }: { onClose: () => void; onSave: (card: ActivityCard) => void }) {
   const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
   const [imageUrl, setImageUrl] = useState<string>();
   const [address, setAddress] = useState("");
   const [latitude, setLatitude] = useState("");
   const [longitude, setLongitude] = useState("");
-  const [places, setPlaces] = useState<Array<{ title: string; address: string; latitude: number; longitude: number }>>([]);
+  const [places, setPlaces] = useState<PlaceResult[]>([]);
   useEffect(() => {
-    if (address.trim().length < 3) return;
+    if (address.trim().length < 3 || (latitude && longitude)) return;
     const timeout = window.setTimeout(async () => {
       try {
-        const response = await fetch(`/api/places?q=${encodeURIComponent(address)}`);
-        const payload = await response.json();
-        if (response.ok) setPlaces(payload.results ?? []);
+        setPlaces(await searchPlaces(address));
       } catch { setPlaces([]); }
     }, 250);
     return () => window.clearTimeout(timeout);
-  }, [address]);
-  const submit = (event: FormEvent<HTMLFormElement>) => {
+  }, [address, latitude, longitude]);
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
     const title = String(data.get("title") ?? "").trim();
-    const address = String(data.get("address") ?? "").trim();
-    if (!title || !address) return setError("请填写活动名称和地点");
+    let resolvedAddress = String(data.get("address") ?? "").trim();
+    if (!title || !resolvedAddress) return setError("请填写活动名称和地点");
+    setSaving(true);
+    setError("");
+    let resolvedLatitude = latitude.trim() ? Number(latitude) : undefined;
+    let resolvedLongitude = longitude.trim() ? Number(longitude) : undefined;
+    if (!Number.isFinite(resolvedLatitude) || !Number.isFinite(resolvedLongitude)) {
+      try {
+        const resolution = await resolvePlaceAddress(resolvedAddress);
+        if (resolution.kind === "ambiguous") {
+          setPlaces(resolution.results);
+          setError("找到多个地址，请选择一个候选地址");
+          setSaving(false);
+          return;
+        }
+        if (resolution.kind === "unresolved") {
+          setError("OneMap 找不到这个地址，请补充邮编或选择候选地址");
+          setSaving(false);
+          return;
+        }
+        resolvedAddress = resolution.place.address;
+        resolvedLatitude = resolution.place.latitude;
+        resolvedLongitude = resolution.place.longitude;
+      } catch {
+        setError("OneMap 地点查询失败，请稍后重试");
+        setSaving(false);
+        return;
+      }
+    }
     const durationMinutes = Number(data.get("duration"));
     const adult = Number(data.get("adult")) || undefined;
     const child = Number(data.get("child")) || undefined;
+    const category = String(data.get("category")) as ActivityCategory;
     onSave({
       id: `custom-${Date.now()}`,
       title,
       subtitle: "自定义活动",
-      category: String(data.get("category")) as ActivityCategory,
+      category,
       description: String(data.get("notes") ?? "临时加入的旅行灵感。"),
-      address,
-      latitude: Number(data.get("latitude")) || hotel.latitude,
-      longitude: Number(data.get("longitude")) || hotel.longitude,
+      address: resolvedAddress,
+      latitude: resolvedLatitude!,
+      longitude: resolvedLongitude!,
       durationMinutes,
       price: adult || child ? { currency: "SGD", adult, child, familyTotal: adult && child ? adult * 2 + child * 2 : undefined, kind: "exact", source: "manual", checkedAt: new Date().toISOString().slice(0, 10) } : undefined,
       imageUrl,
       tags: ["自定义"],
       accent: "sun",
       custom: true,
+      reservationStatus: category === "attraction" || category === "food" ? "required" : undefined,
     });
   };
   const readImage = (file?: File) => {
@@ -315,7 +344,7 @@ function CustomActivityDialog({ onClose, onSave }: { onClose: () => void; onSave
           <label className="span-2">活动名称<input name="title" placeholder="例如：国家美术馆儿童展" /></label>
           <label>类型<select name="category" defaultValue="attraction"><option value="attraction">景点</option><option value="food">美食</option><option value="shopping">购物</option><option value="rest">休息</option></select></label>
           <label>时长<select name="duration" defaultValue="60">{Array.from({ length: 48 }, (_, index) => (index + 1) * 15).map((value) => <option key={value} value={value}>{value} 分钟</option>)}</select></label>
-          <label className="span-2 place-field">地点<input name="address" value={address} onChange={(event) => { setAddress(event.target.value); if (event.target.value.trim().length < 3) setPlaces([]); }} placeholder="输入新加坡地点或地址" />
+          <label className="span-2 place-field">地点<input name="address" value={address} onChange={(event) => { setAddress(event.target.value); setLatitude(""); setLongitude(""); if (event.target.value.trim().length < 3) setPlaces([]); }} placeholder="输入新加坡地点或地址" />
             {places.length > 0 && <span className="place-results">{places.map((place) => <button type="button" key={`${place.latitude}-${place.longitude}`} aria-label={`选择 ${place.title}`} onClick={() => { setAddress(place.address); setLatitude(String(place.latitude)); setLongitude(String(place.longitude)); setPlaces([]); }}><strong>{place.title}</strong><small>{place.address}</small></button>)}</span>}
           </label>
           <label>纬度（可选）<input name="latitude" type="number" step="any" value={latitude} onChange={(event) => setLatitude(event.target.value)} placeholder="1.2932" /></label>
@@ -326,19 +355,66 @@ function CustomActivityDialog({ onClose, onSave }: { onClose: () => void; onSave
           <label className="image-upload span-2">{imageUrl ? <img src={imageUrl} alt="自定义活动预览" /> : <Sparkles />}<span>添加卡片图片（可选）</span><input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => readImage(event.target.files?.[0])} /></label>
         </div>
         {error && <p className="form-error">{error}</p>}
-        <button className="save-card" type="submit"><Plus size={17} />保存到卡片库</button>
+        <button className="save-card" type="submit" disabled={saving}><Plus size={17} />{saving ? "正在确认地点…" : "保存到卡片库"}</button>
       </form>
     </div>
   );
 }
 
-function DetailDrawer({ card, onClose, onDuration, onDelete }: { card: ActivityCard; onClose: () => void; onDuration: (durationMinutes: number) => void; onDelete?: () => void }) {
+function DetailDrawer({ card, onClose, onDuration, onLocation, onDelete }: { card: ActivityCard; onClose: () => void; onDuration: (durationMinutes: number) => void; onLocation?: (location: Pick<ActivityCard, "address" | "latitude" | "longitude">) => void; onDelete?: () => void }) {
   const [durationDraft, setDurationDraft] = useState(String(card.durationMinutes));
+  const [editingLocation, setEditingLocation] = useState(false);
+  const [locationDraft, setLocationDraft] = useState(card.address);
+  const [selectedPlace, setSelectedPlace] = useState<PlaceResult>();
+  const [locationPlaces, setLocationPlaces] = useState<PlaceResult[]>([]);
+  const [locationError, setLocationError] = useState("");
+  const [savingLocation, setSavingLocation] = useState(false);
+  const [deleteArmed, setDeleteArmed] = useState(false);
   const duration = Number(durationDraft);
   const durationValid = Number.isInteger(duration) && duration >= 15 && duration <= 720 && duration % 15 === 0;
   const durationDirty = duration !== card.durationMinutes;
   const saveDuration = () => {
     if (durationDirty && durationValid) onDuration(duration);
+  };
+  useEffect(() => {
+    if (!editingLocation || selectedPlace || locationDraft.trim().length < 3) return;
+    const timeout = window.setTimeout(async () => {
+      try { setLocationPlaces(await searchPlaces(locationDraft)); } catch { setLocationPlaces([]); }
+    }, 250);
+    return () => window.clearTimeout(timeout);
+  }, [editingLocation, locationDraft, selectedPlace]);
+  const saveLocation = async () => {
+    if (!onLocation) return;
+    setSavingLocation(true);
+    setLocationError("");
+    let place = selectedPlace;
+    if (!place) {
+      try {
+        const resolution = await resolvePlaceAddress(locationDraft);
+        if (resolution.kind === "ambiguous") {
+          setLocationPlaces(resolution.results);
+          setLocationError("找到多个地址，请选择一个候选地址");
+          setSavingLocation(false);
+          return;
+        }
+        if (resolution.kind === "unresolved") {
+          setLocationError("OneMap 找不到这个地址，请补充邮编或选择候选地址");
+          setSavingLocation(false);
+          return;
+        }
+        place = resolution.place;
+      } catch {
+        setLocationError("OneMap 地点查询失败，请稍后重试");
+        setSavingLocation(false);
+        return;
+      }
+    }
+    onLocation({ address: place.address, latitude: place.latitude, longitude: place.longitude });
+    setLocationDraft(place.address);
+    setEditingLocation(false);
+    setSelectedPlace(undefined);
+    setLocationPlaces([]);
+    setSavingLocation(false);
   };
   return (
     <aside className="detail-drawer" aria-label={`${card.title} 详情`}>
@@ -370,8 +446,14 @@ function DetailDrawer({ card, onClose, onDuration, onDelete }: { card: ActivityC
           </span>}
         </dd></div>
         <div><dt><Ticket />家庭预算</dt><dd>{money(card)}</dd></div>
-        <div><dt><MapPin />地点</dt><dd>{card.address}</dd></div>
+        <div><dt><MapPin />地点</dt><dd className="location-fact"><span>{card.address}</span>{onLocation && !editingLocation && <button aria-label={`编辑 ${card.title} 地点`} onClick={() => setEditingLocation(true)}>修改</button>}</dd></div>
       </dl>
+      {onLocation && editingLocation && <div className="location-editor">
+        <label>地点地址<input aria-label={`${card.title} 地点地址`} value={locationDraft} onChange={(event) => { setLocationDraft(event.target.value); setSelectedPlace(undefined); setLocationError(""); }} /></label>
+        {locationPlaces.length > 0 && <div className="location-results">{locationPlaces.map((place) => <button key={`${place.latitude}-${place.longitude}`} aria-label={`选择地点 ${place.title}`} onClick={() => { setLocationDraft(place.address); setSelectedPlace(place); setLocationPlaces([]); }}><strong>{place.title}</strong><small>{place.address}</small></button>)}</div>}
+        {locationError && <p className="form-error">{locationError}</p>}
+        <div className="location-actions"><button disabled={savingLocation} aria-label={`保存 ${card.title} 地点`} onClick={saveLocation}><Check size={13} />{savingLocation ? "查询中" : "保存地点"}</button><button aria-label={`取消 ${card.title} 地点`} onClick={() => { setEditingLocation(false); setLocationDraft(card.address); setSelectedPlace(undefined); setLocationError(""); }}><X size={13} />取消</button></div>
+      </div>}
       {card.constraints?.length && <div className="note-box"><Info size={16} /><div>{card.constraints.map((item) => <p key={item}>{item}</p>)}</div></div>}
       <div className="tag-row">{card.tags.map((tag) => <span key={tag}>#{tag}</span>)}</div>
       {card.price && <p className="source-note">价格核对：{card.price.checkedAt} · {card.price.source === "klook" ? "Klook 优先" : card.price.source === "official" ? "官网" : "手动"}{card.price.note ? ` · ${card.price.note}` : ""}</p>}
@@ -379,7 +461,9 @@ function DetailDrawer({ card, onClose, onDuration, onDelete }: { card: ActivityC
         {(card.bookingUrl || card.price?.sourceUrl) && <a href={card.bookingUrl ?? card.price?.sourceUrl} target="_blank" rel="noreferrer">查看票价 <ExternalLink size={14} /></a>}
         <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(card.address)}`} target="_blank" rel="noreferrer">打开地图 <MapPin size={14} /></a>
       </div>
-      {onDelete && <button className="delete-custom" onClick={onDelete}><Trash2 size={15} />删除自定义卡</button>}
+      {onDelete && (deleteArmed
+        ? <div className="delete-confirm"><span>同时移除行程中的全部实例</span><button onClick={onDelete}>确认删除</button><button onClick={() => setDeleteArmed(false)}>取消删除</button></div>
+        : <button className="delete-custom" onClick={() => setDeleteArmed(true)}><Trash2 size={15} />删除自定义卡</button>)}
       {card.imageCredit && <p className="image-credit">图片：{card.imageCredit}</p>}
     </aside>
   );
@@ -543,7 +627,7 @@ export function PlannerApp() {
         {activeDragItem && activeDragCard ? <div className="drag-overlay-card"><small>{activeDragItem.startTime}</small><strong>{activeDragCard.title}</strong><span>{activeDragCard.durationMinutes} 分钟</span></div> : null}
       </DragOverlay>
       {customOpen && <CustomActivityDialog onClose={() => setCustomOpen(false)} onSave={(card) => { dispatch({ type: "add-card", card }); setCustomOpen(false); setSelectedCardId(card.id); }} />}
-      {selected && <DetailDrawer key={`${selected.id}:${selected.durationMinutes}`} card={selected} onClose={() => setSelectedCardId(undefined)} onDuration={(durationMinutes) => dispatch({ type: "set-card-duration", cardId: selected.id, durationMinutes })} onDelete={selected.custom ? () => { dispatch({ type: "delete-card", cardId: selected.id }); setSelectedCardId(undefined); } : undefined} />}
+      {selected && <DetailDrawer key={`${selected.id}:${selected.durationMinutes}`} card={selected} onClose={() => setSelectedCardId(undefined)} onDuration={(durationMinutes) => dispatch({ type: "set-card-duration", cardId: selected.id, durationMinutes })} onLocation={selected.custom ? (location) => dispatch({ type: "set-card-location", cardId: selected.id, location }) : undefined} onDelete={selected.custom ? () => { dispatch({ type: "delete-card", cardId: selected.id }); setSelectedCardId(undefined); } : undefined} />}
     </DndContext>
   );
 }

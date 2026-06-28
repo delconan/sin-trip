@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import "@/app/globals.css";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DropIndicator, PlannerApp } from "./planner-app";
@@ -60,6 +60,86 @@ describe("PlannerApp", () => {
     await user.click(option);
     expect(screen.getByLabelText("地点")).toHaveValue("10 BAYFRONT AVENUE");
     vi.unstubAllGlobals();
+  });
+
+  it("auto-resolves a unique custom address before saving", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ results: [{ title: "414 GEYLANG ROAD", address: "414 GEYLANG ROAD SINGAPORE 389392", latitude: 1.312888405679514, longitude: 103.8826252657034 }] }),
+    }));
+    const user = userEvent.setup();
+    renderPlanner();
+    await user.click(screen.getByRole("button", { name: "新建自定义活动" }));
+    await user.type(screen.getByLabelText("活动名称"), "No Signboard Seafood");
+    await user.type(screen.getByLabelText("地点"), "414 Geylang Rd Singapore 389392");
+    await user.click(screen.getByRole("button", { name: "保存到卡片库" }));
+
+    await user.click(screen.getByRole("button", { name: "关闭详情" }));
+    const card = (await screen.findByText("No Signboard Seafood", { selector: ".candidate-title" })).closest("article");
+    expect(card).not.toBeNull();
+    await user.click(within(card!).getByRole("button", { name: "加入7月7日" }));
+    await user.click(screen.getByRole("button", { name: "查看 Palm Beach Seafood 到 No Signboard Seafood 的交通方案" }));
+    expect(screen.getByRole("link", { name: "步行 Google Maps 查询" })).toHaveAttribute(
+      "href",
+      expect.stringContaining("destination=1.312888405679514%2C103.8826252657034"),
+    );
+    vi.unstubAllGlobals();
+  });
+
+  it("does not save an unresolved custom address", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ results: [] }) }));
+    const user = userEvent.setup();
+    renderPlanner();
+    await user.click(screen.getByRole("button", { name: "新建自定义活动" }));
+    await user.type(screen.getByLabelText("活动名称"), "未知餐厅");
+    await user.type(screen.getByLabelText("地点"), "找不到的地址 999999");
+    await user.click(screen.getByRole("button", { name: "保存到卡片库" }));
+
+    expect(await screen.findByText("OneMap 找不到这个地址，请补充邮编或选择候选地址")).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "新建自定义活动" })).toBeInTheDocument();
+    vi.unstubAllGlobals();
+  });
+
+  it("updates an existing custom card to a OneMap location", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ results: [{ title: "414 GEYLANG ROAD", address: "414 GEYLANG ROAD SINGAPORE 389392", latitude: 1.312888405679514, longitude: 103.8826252657034 }] }),
+    }));
+    const user = userEvent.setup();
+    renderPlanner();
+    await user.click(screen.getByRole("button", { name: "新建自定义活动" }));
+    await user.type(screen.getByLabelText("活动名称"), "No Signboard Seafood");
+    await user.type(screen.getByLabelText("地点"), "临时地址");
+    await user.type(screen.getByLabelText("纬度（可选）"), "1.30");
+    await user.type(screen.getByLabelText("经度（可选）"), "103.80");
+    await user.click(screen.getByRole("button", { name: "保存到卡片库" }));
+
+    await user.click(screen.getByRole("button", { name: "编辑 No Signboard Seafood 地点" }));
+    const address = screen.getByLabelText("No Signboard Seafood 地点地址");
+    await user.clear(address);
+    await user.type(address, "414 Geylang Rd Singapore 389392");
+    await user.click(screen.getByRole("button", { name: "保存 No Signboard Seafood 地点" }));
+    expect(await screen.findByText("414 GEYLANG ROAD SINGAPORE 389392")).toBeInTheDocument();
+    vi.unstubAllGlobals();
+  });
+
+  it("requires a second confirmation before deleting a custom card", async () => {
+    const user = userEvent.setup();
+    renderPlanner();
+    await user.click(screen.getByRole("button", { name: "新建自定义活动" }));
+    await user.type(screen.getByLabelText("活动名称"), "待删除活动");
+    await user.type(screen.getByLabelText("地点"), "测试地址");
+    await user.type(screen.getByLabelText("纬度（可选）"), "1.30");
+    await user.type(screen.getByLabelText("经度（可选）"), "103.80");
+    await user.click(screen.getByRole("button", { name: "保存到卡片库" }));
+
+    await user.click(screen.getByRole("button", { name: "删除自定义卡" }));
+    expect(screen.getByRole("button", { name: "确认删除" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "取消删除" }));
+    expect(screen.getByRole("heading", { name: "待删除活动" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "删除自定义卡" }));
+    await user.click(screen.getByRole("button", { name: "确认删除" }));
+    expect(screen.queryByText("待删除活动")).not.toBeInTheDocument();
   });
 
   it("edits a day title in place and saves it with Enter", async () => {

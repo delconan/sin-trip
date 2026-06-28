@@ -196,6 +196,13 @@ button { color: inherit; }
 .duration-editor>input:focus { border-color:var(--chilli); }
 .duration-editor>span:not(.duration-actions) { color:var(--ink-soft); font-size:9px; }
 .duration-actions { display:flex; gap:3px; }
+.location-fact { display:flex; justify-content:flex-end; align-items:center; gap:7px; }.location-fact span { max-width:230px; }
+.location-fact button { border:0; border-bottom:1px solid var(--chilli); padding:2px 0; background:transparent; color:var(--chilli); cursor:pointer; font-size:9px; }
+.location-editor { margin:10px 0 16px; padding:12px; border:1px solid var(--line); border-radius:10px; background:var(--paper-deep); }
+.location-editor label { display:grid; gap:5px; color:var(--ink-soft); font-size:9px; }.location-editor input { width:100%; border:0; border-bottom:1px solid var(--line); padding:7px; background:var(--cream); color:var(--ink); }
+.location-results { display:grid; max-height:150px; overflow:auto; margin-top:6px; }.location-results button { display:grid; gap:2px; border:0; border-bottom:1px solid var(--line); padding:7px; background:transparent; text-align:left; cursor:pointer; }.location-results small { color:var(--ink-soft); }
+.location-actions,.delete-confirm { display:flex; align-items:center; gap:6px; margin-top:8px; }.location-actions button,.delete-confirm button { border:1px solid var(--ink); border-radius:99px; padding:6px 9px; background:transparent; cursor:pointer; font-size:9px; }.location-actions button:first-child { background:var(--ink); color:var(--cream); }
+.delete-confirm { flex-wrap:wrap; justify-content:center; color:var(--chilli); font-size:9px; }.delete-confirm span { width:100%; text-align:center; }.delete-confirm button:first-of-type { border-color:var(--chilli); background:var(--chilli); color:var(--cream); }
 .note-box { display:flex; gap:8px; background:rgba(241,191,67,.16); border-left:3px solid var(--sun); padding:10px; font-size:10px; }
 .note-box p { margin:0 0 3px; }
 .tag-row { display:flex; flex-wrap:wrap; gap:6px; margin:18px 0; }.tag-row span { background:var(--paper-deep); border-radius:99px; padding:5px 8px; font-size:9px; }
