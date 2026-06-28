@@ -74,3 +74,42 @@ test("drops a cross-day card before a chosen target", async ({ page, isMobile })
     expect.stringContaining("Maximum update depth exceeded"),
   );
 });
+
+test("resolves a custom location before creating route links", async ({ page, isMobile }) => {
+  await page.route("**/api/places?*", async (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({ results: [{
+      title: "414 GEYLANG ROAD",
+      address: "414 GEYLANG ROAD SINGAPORE 389392",
+      latitude: 1.312888405679514,
+      longitude: 103.8826252657034,
+    }] }),
+  }));
+  await page.goto("/");
+  if (isMobile) await page.getByRole("button", { name: "卡片库" }).click();
+  await page.getByRole("button", { name: "新建自定义活动" }).click();
+  await page.getByLabel("活动名称").fill("No Signboard Seafood");
+  await page.getByLabel("地点").fill("414 Geylang Rd Singapore 389392");
+  await page.getByRole("button", { name: "保存到卡片库" }).click();
+  await page.getByRole("button", { name: "关闭详情" }).click();
+
+  const customCard = page.locator(".candidate-card").filter({ hasText: "No Signboard Seafood" });
+  await customCard.getByRole("button", { name: "加入7月7日" }).click();
+  if (isMobile) await page.getByRole("button", { name: "每日行程" }).click();
+  await page.getByRole("button", { name: "查看 Palm Beach Seafood 到 No Signboard Seafood 的交通方案" }).click();
+  await expect(page.getByRole("link", { name: "步行 Google Maps 查询" })).toHaveAttribute(
+    "href",
+    /destination=1\.312888405679514%2C103\.8826252657034/,
+  );
+});
+
+test("persists reservation status after reload", async ({ page }) => {
+  await page.goto("/");
+  const minecraft = page.locator(".scheduled-card").filter({ hasText: "Minecraft Experience" });
+  await minecraft.getByRole("button", { name: "标记为已预约" }).click();
+  await expect(minecraft.getByRole("button", { name: "标记为需预约" })).toBeVisible();
+  await page.reload();
+  const reloadedMinecraft = page.locator(".scheduled-card").filter({ hasText: "Minecraft Experience" });
+  await expect(reloadedMinecraft.getByRole("button", { name: "标记为需预约" })).toBeVisible();
+});

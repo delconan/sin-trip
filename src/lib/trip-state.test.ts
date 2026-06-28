@@ -97,7 +97,10 @@ describe("trip state", () => {
     const card = { ...state.cards[0], id: "custom-one", title: "临时活动", custom: true };
     const added = tripReducer(state, { type: "add-card", card });
     expect(added.cards.some((item) => item.id === "custom-one")).toBe(true);
-    expect(tripReducer(added, { type: "delete-card", cardId: "custom-one" }).cards.some((item) => item.id === "custom-one")).toBe(false);
+    const scheduled = tripReducer(added, { type: "schedule", cardId: "custom-one", date: "2026-07-07" });
+    const deleted = tripReducer(scheduled, { type: "delete-card", cardId: "custom-one" });
+    expect(deleted.cards.some((item) => item.id === "custom-one")).toBe(false);
+    expect(deleted.scheduledItems.some((item) => item.cardId === "custom-one")).toBe(false);
   });
 
   it("updates a card-level suggested duration once", () => {
