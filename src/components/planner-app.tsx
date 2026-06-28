@@ -10,7 +10,7 @@ import {
   DragOverEvent,
   DragStartEvent,
   KeyboardSensor,
-  PointerSensor,
+  MouseSensor,
   TouchSensor,
   pointerWithin,
   useDraggable,
@@ -529,10 +529,12 @@ export function PlannerApp() {
   const [moveDraft, setMoveDraft] = useState<{ itemId: string; startTime: string }>();
   const [activeItemId, setActiveItemId] = useState<string>();
   const [dropProjection, setDropProjection] = useState<DropProjection>();
+  const dropProjectionRef = useRef<DropProjection | undefined>(undefined);
+  const dropPreviewFrameRef = useRef<number | undefined>(undefined);
   const [shareHint, setShareHint] = useState("");
   const cloudEntryRef = useRef<HTMLDivElement>(null);
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 8 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
@@ -568,6 +570,9 @@ export function PlannerApp() {
   ])), [state.scheduledItems]);
 
   const clearDragPreview = () => {
+    if (dropPreviewFrameRef.current !== undefined) cancelAnimationFrame(dropPreviewFrameRef.current);
+    dropPreviewFrameRef.current = undefined;
+    dropProjectionRef.current = undefined;
     setActiveItemId(undefined);
     setDropProjection(undefined);
   };
@@ -579,14 +584,25 @@ export function PlannerApp() {
     const activeId = String(active.id);
     if (!activeId.startsWith("item:")) return;
     const translated = active.rect.current.translated;
-    setDropProjection(projectDrop({
+    const nextProjection = projectDrop({
       activeItemId: activeId.slice(5),
       overId: over ? String(over.id) : undefined,
       items: state.scheduledItems,
       activeCenterY: translated ? translated.top + translated.height / 2 : undefined,
       overTop: over?.rect.top,
       overHeight: over?.rect.height,
-    }));
+    });
+    dropProjectionRef.current = nextProjection;
+    if (dropPreviewFrameRef.current !== undefined) return;
+    dropPreviewFrameRef.current = requestAnimationFrame(() => {
+      dropPreviewFrameRef.current = undefined;
+      const queued = dropProjectionRef.current;
+      setDropProjection((current) => (
+        current?.date === queued?.date && current?.position === queued?.position
+          ? current
+          : queued
+      ));
+    });
   };
   const onDragCancel = () => clearDragPreview();
   const onDragEnd = ({ active, over }: DragEndEvent) => {
@@ -600,7 +616,7 @@ export function PlannerApp() {
         activeCenterY: translated ? translated.top + translated.height / 2 : undefined,
         overTop: over?.rect.top,
         overHeight: over?.rect.height,
-      }) ?? dropProjection;
+      }) ?? dropProjectionRef.current ?? dropProjection;
       if (finalProjection) dispatch({ type: "move", itemId: activeId.slice(5), date: finalProjection.date, position: finalProjection.position });
       clearDragPreview();
       return;
