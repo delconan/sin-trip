@@ -1,19 +1,30 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { browserSupabase, isSupabaseBrowserConfigured } from "@/lib/supabase/client";
+import { localTripBackupKey, makeLocalBackup } from "@/lib/local-trip";
 import type { TripAction } from "@/lib/trip-state";
 import type { TripState } from "@/types/trip";
 
-export type SyncStatus = "local" | "connecting" | "synced" | "saving" | "error";
+export type SyncStatus = "local" | "connecting" | "needs-cloud-action" | "creating" | "synced" | "saving" | "error";
 
 export function extractShareToken(hash: string) {
   const token = hash.replace(/^#/, "");
-  return /^[a-f0-9]{32}$/i.test(token) ? token : undefined;
+  return /^[a-f0-9]{32}$/i.test(token) ? token.toLowerCase() : undefined;
 }
 
 export function makeShareUrl(base: string, token: string) {
   return `${base.replace(/#.*$/, "")}#${token}`;
+}
+
+export function syncErrorMessage(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  if (/anonymous.*disabled|anonymous sign-ins/i.test(message)) return "Supabase 匿名登录未启用，请在 Authentication 中启用后重试。";
+  if (/supabase.*not configured|supabase 未配置|credentials/i.test(message)) return "Vercel 的 Supabase 环境变量不完整。";
+  if (/relation .* does not exist|schema cache|could not find the table/i.test(message)) return "Supabase 数据库表尚未建立，请执行项目迁移。";
+  if (/invalid.*token|分享链接|not found/i.test(message)) return "私密分享链接无效或已经重置。";
+  if (/failed to fetch|network|load failed/i.test(message)) return "网络连接失败，本地行程仍已保留。";
+  return message ? `同步失败：${message}` : "同步失败，本地行程仍已保留。";
 }
 
 async function authorizedFetch(path: string, accessToken: string, init?: RequestInit) {
@@ -21,94 +32,174 @@ async function authorizedFetch(path: string, accessToken: string, init?: Request
     ...init,
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}`, ...init?.headers },
   });
-  const payload = await response.json();
+  const text = await response.text();
+  const payload = text ? JSON.parse(text) : {};
   return { response, payload };
 }
 
-export function useTripSync(state: TripState, dispatch: React.Dispatch<TripAction>) {
+async function anonymousAccessToken() {
+  const supabase = browserSupabase();
+  let { data: { session } } = await supabase.auth.getSession();
+  if (!session) {
+    const result = await supabase.auth.signInAnonymously();
+    if (result.error) throw result.error;
+    session = result.data.session;
+  }
+  if (!session) throw new Error("无法建立匿名会话");
+  return session.access_token;
+}
+
+export function useTripSync(
+  state: TripState,
+  dispatch: React.Dispatch<TripAction>,
+  options: { localReady: boolean } = { localReady: true },
+) {
   const [status, setStatus] = useState<SyncStatus>(isSupabaseBrowserConfigured ? "connecting" : "local");
+  const [errorMessage, setErrorMessage] = useState<string>();
   const [tripId, setTripId] = useState<string>();
   const [shareToken, setShareToken] = useState<string>();
+  const [retryNonce, setRetryNonce] = useState(0);
   const accessTokenRef = useRef<string | undefined>(undefined);
   const remoteRevisionRef = useRef<number | undefined>(undefined);
   const readyRef = useRef(false);
+  const stateRef = useRef(state);
+  const dispatchRef = useRef(dispatch);
+  const channelRef = useRef<ReturnType<ReturnType<typeof browserSupabase>["channel"]> | undefined>(undefined);
+  stateRef.current = state;
+  dispatchRef.current = dispatch;
+
+  const clearChannel = useCallback(() => {
+    if (channelRef.current) {
+      void browserSupabase().removeChannel(channelRef.current);
+      channelRef.current = undefined;
+    }
+  }, []);
+
+  const subscribe = useCallback((id: string) => {
+    clearChannel();
+    const supabase = browserSupabase();
+    channelRef.current = supabase.channel(`trip-${id}`).on(
+      "postgres_changes",
+      { event: "UPDATE", schema: "public", table: "trips", filter: `id=eq.${id}` },
+      async (payload) => {
+        const revision = Number((payload.new as { revision?: number }).revision);
+        if (!readyRef.current || revision === remoteRevisionRef.current || !accessTokenRef.current) return;
+        const fresh = await authorizedFetch(`/api/trips/state?tripId=${id}`, accessTokenRef.current);
+        if (fresh.response.ok) {
+          remoteRevisionRef.current = fresh.payload.state.revision;
+          dispatchRef.current({ type: "hydrate", state: fresh.payload.state });
+          setErrorMessage(undefined);
+          setStatus("synced");
+        }
+      },
+    ).subscribe();
+  }, [clearChannel]);
+
+  const connect = useCallback((id: string, token: string, cloudState: TripState, preserveNewerLocal: boolean) => {
+    setShareToken(token);
+    setTripId(id);
+    remoteRevisionRef.current = cloudState.revision;
+    if (!preserveNewerLocal || stateRef.current.revision <= cloudState.revision) {
+      dispatchRef.current({ type: "hydrate", state: cloudState });
+    }
+    readyRef.current = true;
+    setErrorMessage(undefined);
+    setStatus("synced");
+    subscribe(id);
+  }, [subscribe]);
 
   useEffect(() => {
-    if (!isSupabaseBrowserConfigured) return;
+    if (!isSupabaseBrowserConfigured || !options.localReady) return;
+    const fragmentToken = extractShareToken(window.location.hash);
+    if (!fragmentToken) {
+      readyRef.current = false;
+      setErrorMessage(undefined);
+      setStatus("needs-cloud-action");
+      return;
+    }
+
     let cancelled = false;
-    let channel: ReturnType<ReturnType<typeof browserSupabase>["channel"]> | undefined;
-    const bootstrap = async () => {
+    const join = async () => {
+      setStatus("connecting");
+      setErrorMessage(undefined);
       try {
-        const supabase = browserSupabase();
-        let { data: { session } } = await supabase.auth.getSession();
-        if (!session) {
-          const result = await supabase.auth.signInAnonymously();
-          session = result.data.session;
-          if (result.error) throw result.error;
-        }
-        if (!session) throw new Error("无法建立匿名会话");
-        accessTokenRef.current = session.access_token;
-        const fragmentToken = extractShareToken(window.location.hash);
-        const result = fragmentToken
-          ? await authorizedFetch("/api/trips/join", session.access_token, { method: "POST", body: JSON.stringify({ token: fragmentToken }) })
-          : await authorizedFetch("/api/trips/create", session.access_token, { method: "POST" });
+        const accessToken = await anonymousAccessToken();
+        accessTokenRef.current = accessToken;
+        const result = await authorizedFetch("/api/trips/join", accessToken, {
+          method: "POST",
+          body: JSON.stringify({ token: fragmentToken }),
+        });
         if (!result.response.ok) throw new Error(result.payload.error ?? "无法打开共享行程");
-        if (cancelled) return;
-        const token = fragmentToken ?? result.payload.token;
-        const id = result.payload.tripId as string;
-        setShareToken(token);
-        setTripId(id);
-        if (!fragmentToken) window.history.replaceState(null, "", makeShareUrl(`${window.location.origin}/trip`, token));
-        remoteRevisionRef.current = result.payload.state.revision;
-        dispatch({ type: "hydrate", state: result.payload.state });
-        readyRef.current = true;
-        setStatus("synced");
-        channel = supabase.channel(`trip-${id}`).on("postgres_changes", { event: "UPDATE", schema: "public", table: "trips", filter: `id=eq.${id}` }, async (payload) => {
-          const revision = Number((payload.new as { revision?: number }).revision);
-          if (!readyRef.current || revision === remoteRevisionRef.current) return;
-          const fresh = await authorizedFetch(`/api/trips/state?tripId=${id}`, accessTokenRef.current!);
-          if (fresh.response.ok) {
-            remoteRevisionRef.current = fresh.payload.state.revision;
-            dispatch({ type: "hydrate", state: fresh.payload.state });
-            setStatus("synced");
-          }
-        }).subscribe();
+        if (!cancelled) connect(result.payload.tripId, fragmentToken, result.payload.state, false);
       } catch (error) {
         if (!cancelled) {
           console.error(error);
+          setErrorMessage(syncErrorMessage(error));
           setStatus("error");
         }
       }
     };
-    void bootstrap();
-    return () => {
-      cancelled = true;
-      readyRef.current = false;
-      if (channel) void browserSupabase().removeChannel(channel);
-    };
-  }, [dispatch]);
+    void join();
+    return () => { cancelled = true; };
+  }, [connect, options.localReady, retryNonce]);
+
+  useEffect(() => () => clearChannel(), [clearChannel]);
 
   useEffect(() => {
     if (!readyRef.current || !tripId || !accessTokenRef.current || remoteRevisionRef.current === undefined) return;
     if (state.revision === remoteRevisionRef.current) return;
     const timeout = window.setTimeout(async () => {
       setStatus("saving");
-      const result = await authorizedFetch("/api/trips/state", accessTokenRef.current!, {
-        method: "PUT",
-        body: JSON.stringify({ tripId, expectedRevision: remoteRevisionRef.current, state }),
-      });
-      if (result.response.status === 409) {
-        remoteRevisionRef.current = result.payload.state.revision;
-        dispatch({ type: "hydrate", state: result.payload.state });
+      try {
+        const result = await authorizedFetch("/api/trips/state", accessTokenRef.current!, {
+          method: "PUT",
+          body: JSON.stringify({ tripId, expectedRevision: remoteRevisionRef.current, state }),
+        });
+        if (result.response.status === 409) {
+          remoteRevisionRef.current = result.payload.state.revision;
+          dispatchRef.current({ type: "hydrate", state: result.payload.state });
+          setErrorMessage("另一台设备刚刚保存了更新，已载入最新行程。请重新确认本次修改。");
+          setStatus("error");
+        } else if (result.response.ok) {
+          remoteRevisionRef.current = result.payload.revision;
+          dispatchRef.current({ type: "hydrate", state: { ...state, revision: result.payload.revision } });
+          setErrorMessage(undefined);
+          setStatus("synced");
+        } else throw new Error(result.payload.error ?? "无法保存行程");
+      } catch (error) {
+        console.error(error);
+        setErrorMessage(syncErrorMessage(error));
         setStatus("error");
-      } else if (result.response.ok) {
-        remoteRevisionRef.current = result.payload.revision;
-        dispatch({ type: "hydrate", state: { ...state, revision: result.payload.revision } });
-        setStatus("synced");
-      } else setStatus("error");
+      }
     }, 700);
     return () => window.clearTimeout(timeout);
-  }, [dispatch, state, tripId]);
+  }, [state, tripId]);
+
+  const createTrip = useCallback(async (initialState: TripState) => {
+    if (!isSupabaseBrowserConfigured || !options.localReady) return false;
+    setStatus("creating");
+    setErrorMessage(undefined);
+    const snapshot = structuredClone(initialState);
+    try {
+      localStorage.setItem(localTripBackupKey, JSON.stringify(makeLocalBackup(snapshot)));
+      const accessToken = await anonymousAccessToken();
+      accessTokenRef.current = accessToken;
+      const result = await authorizedFetch("/api/trips/create", accessToken, {
+        method: "POST",
+        body: JSON.stringify({ state: snapshot }),
+      });
+      if (!result.response.ok) throw new Error(result.payload.error ?? "无法创建共享行程");
+      const token = result.payload.token as string;
+      window.history.replaceState(null, "", makeShareUrl(`${window.location.origin}/trip`, token));
+      connect(result.payload.tripId, token, result.payload.state, true);
+      return true;
+    } catch (error) {
+      console.error(error);
+      setErrorMessage(syncErrorMessage(error));
+      setStatus("error");
+      return false;
+    }
+  }, [connect, options.localReady]);
 
   const resetAccess = async () => {
     if (!tripId || !accessTokenRef.current) return undefined;
@@ -121,9 +212,12 @@ export function useTripSync(state: TripState, dispatch: React.Dispatch<TripActio
 
   return {
     status,
+    errorMessage,
     tripId,
     shareToken,
     shareUrl: shareToken && typeof window !== "undefined" ? makeShareUrl(`${window.location.origin}/trip`, shareToken) : undefined,
+    createTrip,
+    retry: () => setRetryNonce((value) => value + 1),
     resetAccess,
   };
 }
