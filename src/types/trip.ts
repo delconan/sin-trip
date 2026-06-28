@@ -39,6 +39,7 @@ export interface ActivityCard {
   tags: string[];
   accent?: "leaf" | "sun" | "chilli" | "sky" | "night";
   custom?: boolean;
+  reservationStatus?: "required" | "booked";
 }
 
 export interface ScheduledItem {

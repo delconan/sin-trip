@@ -7,6 +7,8 @@ export type TripAction =
   | { type: "move"; itemId: string; date: string; position: number }
   | { type: "set-time"; itemId: string; startTime: string }
   | { type: "set-card-duration"; cardId: string; durationMinutes: number }
+  | { type: "set-card-location"; cardId: string; location: Pick<ActivityCard, "address" | "latitude" | "longitude"> }
+  | { type: "toggle-reservation"; cardId: string }
   | { type: "set-day-title"; date: string; title: string }
   | { type: "remove-item"; itemId: string }
   | { type: "add-card"; card: ActivityCard }
@@ -16,17 +18,23 @@ export type TripAction =
 
 const defaultDayTitles = () => Object.fromEntries(tripDays.map((day) => [day.date, day.title]));
 
+const normalizeCard = (card: ActivityCard): ActivityCard => (
+  (card.category === "attraction" || card.category === "food") && !card.reservationStatus
+    ? { ...card, reservationStatus: "required" }
+    : card
+);
+
 export function normalizeTripState(state: Omit<TripState, "dayTitles"> & { dayTitles?: Record<string, string> }): TripState {
-  return { ...state, dayTitles: { ...defaultDayTitles(), ...state.dayTitles } };
+  return { ...state, dayTitles: { ...defaultDayTitles(), ...state.dayTitles }, cards: state.cards.map(normalizeCard) };
 }
 
 export function createInitialState(): TripState {
-  return {
+  return normalizeTripState({
     revision: 1,
     dayTitles: defaultDayTitles(),
     cards: structuredClone(seedCards),
     scheduledItems: structuredClone(seedSchedule),
-  };
+  });
 }
 
 function reindex(items: ScheduledItem[]) {
@@ -68,6 +76,30 @@ export function tripReducer(state: TripState, action: TripAction): TripState {
       ...state,
       revision: state.revision + 1,
       cards: state.cards.map((card) => card.id === action.cardId ? { ...card, durationMinutes: duration } : card),
+    };
+  }
+  if (action.type === "set-card-location") {
+    const target = state.cards.find((card) => card.id === action.cardId);
+    if (!target?.custom) return state;
+    const address = action.location.address.trim();
+    if (!address || !Number.isFinite(action.location.latitude) || !Number.isFinite(action.location.longitude)) {
+      throw new Error("自定义地点必须包含有效地址和坐标");
+    }
+    return {
+      ...state,
+      revision: state.revision + 1,
+      cards: state.cards.map((card) => card.id === action.cardId ? { ...card, ...action.location, address } : card),
+    };
+  }
+  if (action.type === "toggle-reservation") {
+    const target = state.cards.find((card) => card.id === action.cardId);
+    if (!target || (target.category !== "attraction" && target.category !== "food")) return state;
+    return {
+      ...state,
+      revision: state.revision + 1,
+      cards: state.cards.map((card) => card.id === action.cardId
+        ? { ...card, reservationStatus: card.reservationStatus === "booked" ? "required" : "booked" }
+        : card),
     };
   }
   if (action.type === "schedule") {

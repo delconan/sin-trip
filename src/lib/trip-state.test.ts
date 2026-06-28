@@ -120,4 +120,36 @@ describe("trip state", () => {
       expect(() => tripReducer(state, { type: "set-card-duration", cardId: "hotel-rest", durationMinutes })).toThrow("15–720");
     }
   });
+
+  it("updates a custom card location without changing its identity", () => {
+    const initial = createInitialState();
+    const card = { ...initial.cards[0], id: "custom-geylang", title: "No Signboard Seafood", custom: true };
+    const state = tripReducer(initial, { type: "add-card", card });
+    const next = tripReducer(state, {
+      type: "set-card-location",
+      cardId: card.id,
+      location: {
+        address: "414 GEYLANG ROAD SINGAPORE 389392",
+        latitude: 1.312888405679514,
+        longitude: 103.8826252657034,
+      },
+    });
+
+    expect(next.cards.find((item) => item.id === card.id)).toMatchObject({
+      id: card.id,
+      address: "414 GEYLANG ROAD SINGAPORE 389392",
+      latitude: 1.312888405679514,
+      longitude: 103.8826252657034,
+    });
+    expect(next.revision).toBe(state.revision + 1);
+  });
+
+  it("toggles reservation status only for attraction and food cards", () => {
+    const state = createInitialState();
+    const booked = tripReducer(state, { type: "toggle-reservation", cardId: "minecraft" });
+    expect(booked.cards.find((card) => card.id === "minecraft")?.reservationStatus).toBe("booked");
+    const required = tripReducer(booked, { type: "toggle-reservation", cardId: "minecraft" });
+    expect(required.cards.find((card) => card.id === "minecraft")?.reservationStatus).toBe("required");
+    expect(tripReducer(state, { type: "toggle-reservation", cardId: "hotel-rest" })).toBe(state);
+  });
 });
