@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import "@/app/globals.css";
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DropIndicator, PlannerApp } from "./planner-app";
@@ -96,6 +96,31 @@ describe("PlannerApp", () => {
     expect(screen.getByRole("heading", { name: "四个人的小小新加坡" })).toBeInTheDocument();
     expect(screen.getAllByTestId("day-column")).toHaveLength(4);
     expect(screen.getByText("Minecraft Experience")).toBeInTheDocument();
+  });
+
+  it("selects one mobile day and exposes touch-friendly movement", async () => {
+    renderPlanner();
+    fireEvent.click(screen.getByRole("tab", { name: /7月9日 周四 7项/, hidden: true }));
+    const selected = screen.getAllByTestId("day-column").find((column) => column.getAttribute("data-date") === "2026-07-09");
+    expect(selected).toHaveAttribute("data-mobile-selected", "true");
+    const grip = screen.getByRole("button", { name: "长按拖动 Skyline Luge · 3 Rounds" });
+    expect(grip).toHaveClass("touch-drag-handle");
+    expect(screen.getByRole("button", { name: "移动 Skyline Luge · 3 Rounds 到其他日期", hidden: true })).toBeInTheDocument();
+  });
+
+  it("moves an itinerary card to another day after one confirmation", async () => {
+    const user = userEvent.setup();
+    renderPlanner();
+    fireEvent.click(screen.getByRole("button", { name: "移动 Skyline Luge · 3 Rounds 到其他日期", hidden: true }));
+    await user.click(screen.getByRole("button", { name: "7月8日" }));
+    const time = screen.getByLabelText("新的开始时间");
+    await user.clear(time);
+    await user.type(time, "10:00");
+    await user.click(screen.getByRole("button", { name: "确认移动" }));
+
+    const dayTwo = screen.getAllByTestId("day-column").find((column) => column.getAttribute("data-date") === "2026-07-08")!;
+    expect(within(dayTwo).getByText("Skyline Luge · 3 Rounds")).toBeVisible();
+    expect(screen.getByRole("tab", { name: /7月8日 周三 4项/, hidden: true })).toHaveAttribute("aria-selected", "true");
   });
 
   it("filters candidate cards", async () => {

@@ -9,7 +9,9 @@ import {
   DragOverlay,
   DragOverEvent,
   DragStartEvent,
+  KeyboardSensor,
   PointerSensor,
+  TouchSensor,
   pointerWithin,
   useDraggable,
   useDroppable,
@@ -18,6 +20,7 @@ import {
 } from "@dnd-kit/core";
 import {
   SortableContext,
+  sortableKeyboardCoordinates,
   useSortable,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
@@ -26,6 +29,8 @@ import {
   ArrowRight,
   BusFront,
   CalendarDays,
+  ChevronDown,
+  ChevronUp,
   Check,
   Clock3,
   ExternalLink,
@@ -34,6 +39,7 @@ import {
   Hotel,
   Info,
   MapPin,
+  MoveRight,
   Menu,
   Plane,
   Plus,
@@ -52,8 +58,10 @@ import { useQuery } from "@tanstack/react-query";
 import { airport, hotel, tripDays } from "@/data/seed";
 import { EditableDayTitle } from "@/components/editable-day-title";
 import { CloudTripEntry } from "@/components/cloud-trip-entry";
+import { MobileDayTabs } from "@/components/mobile-day-tabs";
 import { RouteComparisonDialog } from "@/components/route-comparison-dialog";
 import { ScheduledTimeEditor } from "@/components/scheduled-time-editor";
+import { ScheduledItemMoveDialog } from "@/components/scheduled-item-move-dialog";
 import { ReservationToggle } from "@/components/reservation-toggle";
 import {
   detectScheduleWarnings,
@@ -83,6 +91,12 @@ const categoryLabel: Record<ActivityCategory, string> = {
   shopping: "逛",
   rest: "歇",
   transport: "行",
+};
+
+const shiftTime = (time: string, minutes: number) => {
+  const [hours, mins] = time.split(":").map(Number);
+  const total = Math.max(0, Math.min(23 * 60 + 45, hours * 60 + mins + minutes));
+  return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
 };
 
 const routeIcon: Record<RouteMode, typeof Walking> = {
@@ -148,6 +162,11 @@ function ScheduledCard({
   onRemove,
   onSelect,
   onToggleReservation,
+  onMove,
+  onMoveUp,
+  onMoveDown,
+  canMoveUp,
+  canMoveDown,
 }: {
   item: ScheduledItem;
   card: ActivityCard;
@@ -157,6 +176,11 @@ function ScheduledCard({
   onRemove: () => void;
   onSelect: () => void;
   onToggleReservation: () => void;
+  onMove: () => void;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
+  canMoveUp: boolean;
+  canMoveDown: boolean;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: `item:${item.id}` });
   const warnings = detectScheduleWarnings({ item, card, previousEndTime: previousEnd, transferMinutes });
@@ -173,7 +197,12 @@ function ScheduledCard({
       </button>
       {supportsReservation(card) && <ReservationToggle status={card.reservationStatus ?? "required"} onToggle={onToggleReservation} compact />}
       {warnings.length > 0 && <div className="warnings">{warnings.map((warning) => <span key={warning}>! {warning}</span>)}</div>}
-      <button className="item-grip" {...listeners} {...attributes} aria-label={`移动 ${card.title}`}><GripVertical size={17} /></button>
+      <div className="mobile-item-actions">
+        <button onClick={onMove} aria-label={`移动 ${card.title} 到其他日期`}><MoveRight size={14} />换日</button>
+        <button disabled={!canMoveUp} onClick={onMoveUp} aria-label={`上移 ${card.title}`}><ChevronUp size={15} /></button>
+        <button disabled={!canMoveDown} onClick={onMoveDown} aria-label={`下移 ${card.title}`}><ChevronDown size={15} /></button>
+      </div>
+      <button className="item-grip touch-drag-handle" title="长按后拖动" {...listeners} {...attributes} aria-label={`长按拖动 ${card.title}`}><GripVertical size={17} /></button>
       <button className="item-delete" onClick={onRemove} aria-label={`移除 ${card.title}`}><X size={14} /></button>
     </article>
   );
@@ -210,7 +239,7 @@ function RouteRibbon({ from, to, date, departureTime, hasLuggage = false }: { fr
   );
 }
 
-function DayColumn({ date, title, items, cards, dispatch, onSelect, dropProjection, activeItemId }: { date: (typeof tripDays)[number]; title: string; items: ScheduledItem[]; cards: ActivityCard[]; dispatch: React.Dispatch<Parameters<typeof tripReducer>[1]>; onSelect: (card: ActivityCard) => void; dropProjection?: DropProjection; activeItemId?: string }) {
+function DayColumn({ date, title, items, cards, dispatch, onSelect, onMoveRequest, mobileSelected, dropProjection, activeItemId }: { date: (typeof tripDays)[number]; title: string; items: ScheduledItem[]; cards: ActivityCard[]; dispatch: React.Dispatch<Parameters<typeof tripReducer>[1]>; onSelect: (card: ActivityCard) => void; onMoveRequest: (item: ScheduledItem, suggestedTime?: string) => void; mobileSelected: boolean; dropProjection?: DropProjection; activeItemId?: string }) {
   const { setNodeRef, isOver } = useDroppable({ id: `day:${date.date}` });
   const sorted = sortDayItems(items);
   const isDropTarget = dropProjection?.date === date.date;
@@ -219,7 +248,7 @@ function DayColumn({ date, title, items, cards, dispatch, onSelect, dropProjecti
   const firstCard = displayItems[0] ? cardFor(displayItems[0]) : undefined;
   const lastCard = displayItems.at(-1) ? cardFor(displayItems.at(-1)!) : undefined;
   return (
-    <section ref={setNodeRef} data-testid="day-column" className={`day-column ${isOver ? "is-over" : ""}`}>
+    <section ref={setNodeRef} id={`day-column-${date.date}`} data-testid="day-column" data-date={date.date} data-mobile-selected={mobileSelected ? "true" : "false"} className={`day-column ${isOver ? "is-over" : ""}`}>
       <header className="day-header">
         <div className="date-stamp"><strong>{date.short}</strong><span>{date.weekday}</span></div>
         <div><small>DAY {tripDays.findIndex((day) => day.date === date.date) + 1}</small><EditableDayTitle dateLabel={date.short} title={title} onSave={(nextTitle) => dispatch({ type: "set-day-title", date: date.date, title: nextTitle })} /></div>
@@ -247,6 +276,15 @@ function DayColumn({ date, title, items, cards, dispatch, onSelect, dropProjecti
                   onRemove={() => dispatch({ type: "remove-item", itemId: item.id })}
                   onSelect={() => onSelect(card)}
                   onToggleReservation={() => dispatch({ type: "toggle-reservation", cardId: card.id })}
+                  onMove={() => onMoveRequest(item)}
+                  onMoveUp={() => onMoveRequest(item, previous ? shiftTime(displayItems[index - 1].startTime, -15) : item.startTime)}
+                  onMoveDown={() => {
+                    const next = displayItems[index + 1];
+                    const nextCard = next ? cardFor(next) : undefined;
+                    onMoveRequest(item, next && nextCard ? getEndTime(next.startTime, nextCard.durationMinutes) : item.startTime);
+                  }}
+                  canMoveUp={index > 0}
+                  canMoveDown={index < displayItems.length - 1}
                 />
                 </div>
               </Fragment>
@@ -487,11 +525,17 @@ export function PlannerApp() {
   const [selectedCardId, setSelectedCardId] = useState<string>();
   const [customOpen, setCustomOpen] = useState(false);
   const [mobileTab, setMobileTab] = useState<"library" | "plan">("plan");
+  const [selectedMobileDate, setSelectedMobileDate] = useState<string>(tripDays[0].date);
+  const [moveDraft, setMoveDraft] = useState<{ itemId: string; startTime: string }>();
   const [activeItemId, setActiveItemId] = useState<string>();
   const [dropProjection, setDropProjection] = useState<DropProjection>();
   const [shareHint, setShareHint] = useState("");
   const cloudEntryRef = useRef<HTMLDivElement>(null);
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 8 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
 
   useEffect(() => {
     const restored = readLocalTrip(localStorage, localTripStorageKey);
@@ -515,6 +559,13 @@ export function PlannerApp() {
   const selected = state.cards.find((card) => card.id === selectedCardId);
   const activeDragItem = state.scheduledItems.find((item) => item.id === activeItemId);
   const activeDragCard = state.cards.find((card) => card.id === activeDragItem?.cardId);
+  const movingBaseItem = state.scheduledItems.find((item) => item.id === moveDraft?.itemId);
+  const movingItem = movingBaseItem && moveDraft ? { ...movingBaseItem, startTime: moveDraft.startTime } : undefined;
+  const movingCard = state.cards.find((card) => card.id === movingItem?.cardId);
+  const mobileDayCounts = useMemo(() => Object.fromEntries(tripDays.map((day) => [
+    day.date,
+    state.scheduledItems.filter((item) => item.date === day.date).length,
+  ])), [state.scheduledItems]);
 
   const clearDragPreview = () => {
     setActiveItemId(undefined);
@@ -647,8 +698,9 @@ export function PlannerApp() {
               <div><span className="route-legend"><Walking /> 步行</span><span className="route-legend"><TrainFront /> MRT / 公交</span><span className="route-legend"><BusFront /> 打车</span></div>
               <p><Info />点击交通线比较步行、公交与打车；OneMap 未连接时使用本地估时</p>
             </div>
+            <MobileDayTabs days={tripDays} selectedDate={selectedMobileDate} counts={mobileDayCounts} onSelect={setSelectedMobileDate} />
             <div className="days-board">
-              {tripDays.map((day) => <DayColumn key={day.date} date={day} title={state.dayTitles[day.date] ?? day.title} items={state.scheduledItems.filter((item) => item.date === day.date)} cards={state.cards} dispatch={dispatch} onSelect={(card) => setSelectedCardId(card.id)} dropProjection={dropProjection} activeItemId={activeItemId} />)}
+              {tripDays.map((day) => <DayColumn key={day.date} date={day} title={state.dayTitles[day.date] ?? day.title} items={state.scheduledItems.filter((item) => item.date === day.date)} cards={state.cards} dispatch={dispatch} onSelect={(card) => setSelectedCardId(card.id)} onMoveRequest={(item, suggestedTime) => setMoveDraft({ itemId: item.id, startTime: suggestedTime ?? item.startTime })} mobileSelected={selectedMobileDate === day.date} dropProjection={dropProjection} activeItemId={activeItemId} />)}
             </div>
           </section>
         </div>
@@ -659,6 +711,16 @@ export function PlannerApp() {
         {activeDragItem && activeDragCard ? <div className="drag-overlay-card"><small>{activeDragItem.startTime}</small><strong>{activeDragCard.title}</strong><span>{activeDragCard.durationMinutes} 分钟</span></div> : null}
       </DragOverlay>
       {customOpen && <CustomActivityDialog onClose={() => setCustomOpen(false)} onSave={(card) => { dispatch({ type: "add-card", card }); setCustomOpen(false); setSelectedCardId(card.id); }} />}
+      {movingItem && movingCard && <ScheduledItemMoveDialog
+        item={movingItem}
+        card={movingCard}
+        onClose={() => setMoveDraft(undefined)}
+        onConfirm={({ date, startTime }) => {
+          dispatch({ type: "move-and-set-time", itemId: movingItem.id, date, startTime });
+          setSelectedMobileDate(date);
+          setMoveDraft(undefined);
+        }}
+      />}
       {selected && <DetailDrawer key={`${selected.id}:${selected.durationMinutes}`} card={selected} onClose={() => setSelectedCardId(undefined)} onDuration={(durationMinutes) => dispatch({ type: "set-card-duration", cardId: selected.id, durationMinutes })} onToggleReservation={() => dispatch({ type: "toggle-reservation", cardId: selected.id })} onLocation={selected.custom ? (location) => dispatch({ type: "set-card-location", cardId: selected.id, location }) : undefined} onDelete={selected.custom ? () => { dispatch({ type: "delete-card", cardId: selected.id }); setSelectedCardId(undefined); } : undefined} />}
     </DndContext>
   );
