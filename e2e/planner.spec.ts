@@ -60,6 +60,8 @@ test("defers time reordering and updates suggested duration on confirmation", as
 
 test("drops a cross-day card before a chosen target", async ({ page, isMobile }) => {
   test.skip(isMobile, "desktop pointer drag");
+  const pageErrors: Error[] = [];
+  page.on("pageerror", (error) => pageErrors.push(error));
   await page.goto("/");
   const source = page.getByRole("button", { name: "移动 Skyline Luge · 3 Rounds" });
   const target = page.getByRole("button", { name: "移动 Minecraft Experience" });
@@ -68,4 +70,7 @@ test("drops a cross-day card before a chosen target", async ({ page, isMobile })
   const dayTwo = page.getByTestId("day-column").filter({ hasText: "7月8日" });
   const titles = await dayTwo.locator(".scheduled-card strong").allTextContents();
   expect(titles.indexOf("Skyline Luge · 3 Rounds")).toBeLessThan(titles.indexOf("Minecraft Experience"));
+  expect(pageErrors.map((error) => error.message)).not.toContainEqual(
+    expect.stringContaining("Maximum update depth exceeded"),
+  );
 });

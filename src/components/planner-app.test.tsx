@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import "@/app/globals.css";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -13,6 +14,13 @@ describe("PlannerApp", () => {
   it("renders a clear drop-position indicator", () => {
     render(<DropIndicator />);
     expect(screen.getByText("放在这里")).toBeInTheDocument();
+  });
+
+  it("keeps the drop indicator out of the sortable layout flow", () => {
+    render(<DropIndicator />);
+    const indicator = screen.getByRole("status");
+    expect(getComputedStyle(indicator).height).toBe("0px");
+    expect(getComputedStyle(indicator).pointerEvents).toBe("none");
   });
 
   it("renders the trip summary and four day columns", () => {

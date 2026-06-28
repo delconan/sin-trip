@@ -129,11 +129,11 @@ button { color: inherit; }
 .route-ribbon span:not(.route-dash) { background:var(--paper); padding:2px 4px; }
 .route-ribbon:hover { color:var(--chilli); }
 .empty-day { min-height:180px; display:grid; place-items:center; align-content:center; gap:7px; color:var(--ink-soft); font-size:9px; border:1px dashed var(--line); margin:12px 0; }
-.drop-indicator { position:relative; height:58px; display:grid; place-items:center; margin:4px 0; color:var(--chilli); font-size:8px; font-weight:900; letter-spacing:.08em; animation:dropGap .16s ease-out; }
-.drop-indicator::before { content:""; position:absolute; left:4px; right:4px; top:50%; border-top:2px solid var(--chilli); box-shadow:0 3px 0 rgba(225,84,56,.08); }
-.drop-indicator::after { content:""; position:absolute; left:1px; top:calc(50% - 4px); width:9px; height:9px; border-radius:50%; background:var(--chilli); }
-.drop-indicator span { position:relative; z-index:1; padding:3px 8px; border:1px solid var(--chilli); border-radius:99px; background:var(--paper); box-shadow:0 3px 9px rgba(225,84,56,.14); }
-@keyframes dropGap { from { height:12px; opacity:0; } }
+.drop-indicator { position:relative; z-index:4; height:0; margin:0; color:var(--chilli); font-size:8px; font-weight:900; letter-spacing:.08em; pointer-events:none; animation:dropMarker .16s ease-out; }
+.drop-indicator::before { content:""; position:absolute; left:4px; right:4px; top:0; border-top:2px solid var(--chilli); box-shadow:0 3px 0 rgba(225,84,56,.08); }
+.drop-indicator::after { content:""; position:absolute; left:1px; top:-4px; width:9px; height:9px; border-radius:50%; background:var(--chilli); }
+.drop-indicator span { position:absolute; left:50%; top:0; z-index:1; padding:3px 8px; border:1px solid var(--chilli); border-radius:99px; background:var(--paper); box-shadow:0 3px 9px rgba(225,84,56,.14); transform:translate(-50%,-50%); white-space:nowrap; }
+@keyframes dropMarker { from { opacity:0; } }
 .drag-overlay-card { width:220px; display:grid; grid-template-columns:1fr auto; gap:5px; padding:13px 15px; border:1px solid rgba(23,59,52,.22); border-left:4px solid var(--chilli); border-radius:10px; background:var(--cream); box-shadow:0 22px 45px rgba(18,45,38,.28); transform:rotate(-1.5deg); cursor:grabbing; }
 .drag-overlay-card small { grid-column:1/-1; color:var(--chilli); font-size:9px; font-weight:900; }.drag-overlay-card strong { font:700 15px var(--display); }.drag-overlay-card span { color:var(--ink-soft); font-size:8px; align-self:end; }
 
