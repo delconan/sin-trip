@@ -77,6 +77,26 @@ describe("trip state", () => {
     expect(orderedIds.indexOf("s-luge")).toBeLessThan(orderedIds.indexOf("s-minecraft"));
   });
 
+  it("moves an item across days and sets its time in one revision", () => {
+    const state = createInitialState();
+    const next = tripReducer(state, {
+      type: "move-and-set-time",
+      itemId: "s-luge",
+      date: "2026-07-08",
+      startTime: "10:00",
+    });
+    const moved = next.scheduledItems.find((item) => item.id === "s-luge");
+    const dayIds = next.scheduledItems
+      .filter((item) => item.date === "2026-07-08")
+      .sort((a, b) => a.position - b.position)
+      .map((item) => item.id);
+
+    expect(moved).toMatchObject({ date: "2026-07-08", startTime: "10:00" });
+    expect(dayIds[0]).toBe("s-luge");
+    expect(next.revision).toBe(state.revision + 1);
+    expect(() => tripReducer(state, { type: "move-and-set-time", itemId: "s-luge", date: "2026-07-08", startTime: "10:07" })).toThrow("15 分钟");
+  });
+
   it("keeps an upward drag at the requested position", () => {
     const next = tripReducer(createInitialState(), {
       type: "move",

@@ -5,6 +5,7 @@ import type { ActivityCard, ScheduledItem, TripState } from "@/types/trip";
 export type TripAction =
   | { type: "schedule"; cardId: string; date: string }
   | { type: "move"; itemId: string; date: string; position: number }
+  | { type: "move-and-set-time"; itemId: string; date: string; startTime: string }
   | { type: "set-time"; itemId: string; startTime: string }
   | { type: "set-card-duration"; cardId: string; durationMinutes: number }
   | { type: "set-card-location"; cardId: string; location: Pick<ActivityCard, "address" | "latitude" | "longitude"> }
@@ -121,6 +122,27 @@ export function tripReducer(state: TripState, action: TripAction): TripState {
     targetDay.splice(Math.max(0, Math.min(action.position, targetDay.length)), 0, { ...target, date: action.date, version: (target.version ?? 0) + 1 });
     const otherDays = remaining.filter((item) => item.date !== action.date);
     return { ...state, revision: state.revision + 1, scheduledItems: reindex([...otherDays, ...targetDay]) };
+  }
+  if (action.type === "move-and-set-time") {
+    const match = /^(\d{2}):(\d{2})$/.exec(action.startTime);
+    if (!match || Number(match[1]) >= 24 || Number(match[2]) >= 60 || Number(match[2]) % 15 !== 0) {
+      throw new Error("时间必须落在 15 分钟刻度");
+    }
+    const target = state.scheduledItems.find((item) => item.id === action.itemId);
+    if (!target) return state;
+    const updated = state.scheduledItems.map((item) => item.id === action.itemId
+      ? { ...item, date: action.date, startTime: action.startTime, version: (item.version ?? 0) + 1 }
+      : item);
+    const ordered = [...new Set(updated.map((item) => item.date))].flatMap((date) => (
+      updated
+        .filter((item) => item.date === date)
+        .sort((a, b) => a.startTime.localeCompare(b.startTime) || a.position - b.position)
+    ));
+    return {
+      ...state,
+      revision: state.revision + 1,
+      scheduledItems: reindex(ordered),
+    };
   }
   if (action.type === "set-time") {
     const match = /^(\d{2}):(\d{2})$/.exec(action.startTime);
