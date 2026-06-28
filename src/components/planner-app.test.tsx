@@ -2,7 +2,7 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { PlannerApp } from "./planner-app";
+import { DropIndicator, PlannerApp } from "./planner-app";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 const renderPlanner = () => render(<QueryClientProvider client={new QueryClient()}><PlannerApp /></QueryClientProvider>);
@@ -10,6 +10,11 @@ const renderPlanner = () => render(<QueryClientProvider client={new QueryClient(
 beforeEach(() => localStorage.clear());
 
 describe("PlannerApp", () => {
+  it("renders a clear drop-position indicator", () => {
+    render(<DropIndicator />);
+    expect(screen.getByText("放在这里")).toBeInTheDocument();
+  });
+
   it("renders the trip summary and four day columns", () => {
     renderPlanner();
     expect(screen.getByRole("heading", { name: "四个人的小小新加坡" })).toBeInTheDocument();
@@ -87,5 +92,20 @@ describe("PlannerApp", () => {
 
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("dialog", { name: "交通方案对比" })).not.toBeInTheDocument();
+  });
+
+  it("updates a card suggested duration only after confirmation", async () => {
+    const user = userEvent.setup();
+    renderPlanner();
+
+    await user.click(screen.getByText("Minecraft Experience"));
+    const duration = screen.getByLabelText("Minecraft Experience 建议时长");
+    await user.clear(duration);
+    await user.type(duration, "90");
+
+    expect(screen.getByText("— 17:00")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "确认 Minecraft Experience 建议时长" }));
+    expect(screen.getByText("— 17:30")).toBeInTheDocument();
+    expect(screen.getByLabelText("Minecraft Experience 建议时长")).toHaveValue(90);
   });
 });

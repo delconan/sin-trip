@@ -2,9 +2,15 @@
 /* eslint-disable @next/next/no-img-element */
 
 import {
+  closestCenter,
+  CollisionDetection,
   DndContext,
   DragEndEvent,
+  DragOverlay,
+  DragOverEvent,
+  DragStartEvent,
   PointerSensor,
+  pointerWithin,
   useDraggable,
   useDroppable,
   useSensor,
@@ -41,11 +47,12 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { FormEvent, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { FormEvent, Fragment, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { airport, hotel, tripDays } from "@/data/seed";
 import { EditableDayTitle } from "@/components/editable-day-title";
 import { RouteComparisonDialog } from "@/components/route-comparison-dialog";
+import { ScheduledTimeEditor } from "@/components/scheduled-time-editor";
 import {
   detectScheduleWarnings,
   estimateRoutes,
@@ -54,6 +61,7 @@ import {
   sortDayItems,
 } from "@/lib/planner";
 import { createInitialState, tripReducer } from "@/lib/trip-state";
+import { projectDrop, type DropProjection } from "@/lib/drag-projection";
 import { useTripSync } from "@/lib/sync-client";
 import type { ActivityCard, ActivityCategory, RouteMode, ScheduledItem } from "@/types/trip";
 
@@ -80,6 +88,17 @@ const routeIcon: Record<RouteMode, typeof Walking> = {
   transit: TrainFront,
   taxi: BusFront,
 };
+
+const pointerThenCenter: CollisionDetection = (args) => {
+  const pointerCollisions = pointerWithin(args);
+  const itemCollisions = pointerCollisions.filter((collision) => String(collision.id).startsWith("item:"));
+  if (itemCollisions.length > 0) return itemCollisions;
+  return pointerCollisions.length > 0 ? pointerCollisions : closestCenter(args);
+};
+
+export function DropIndicator() {
+  return <div className="drop-indicator" role="status"><span>放在这里</span></div>;
+}
 
 function money(card: ActivityCard) {
   const price = card.price;
@@ -134,17 +153,13 @@ function ScheduledCard({
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: `item:${item.id}` });
   const warnings = detectScheduleWarnings({ item, card, previousEndTime: previousEnd, transferMinutes });
-  const end = getEndTime(item.startTime, card.durationMinutes);
   return (
     <article
       ref={setNodeRef}
       style={{ transform: CSS.Transform.toString(transform), transition }}
       className={`scheduled-card accent-${card.accent ?? "leaf"} ${isDragging ? "is-dragging" : ""}`}
     >
-      <div className="scheduled-time">
-        <input aria-label={`${card.title} 开始时间`} type="time" step="900" value={item.startTime} onChange={(event) => onTime(event.target.value)} />
-        <span>— {end}</span>
-      </div>
+      <ScheduledTimeEditor key={item.startTime} label={card.title} value={item.startTime} durationMinutes={card.durationMinutes} onCommit={onTime} />
       <button className="scheduled-body" onClick={onSelect}>
         <span className="tiny-stamp">{categoryLabel[card.category]}</span>
         <span><strong>{card.title}</strong><small><MapPin size={12} /> {card.subtitle ?? card.address.split(",")[0]}</small></span>
@@ -187,12 +202,14 @@ function RouteRibbon({ from, to, date, departureTime, hasLuggage = false }: { fr
   );
 }
 
-function DayColumn({ date, title, items, cards, dispatch, onSelect }: { date: (typeof tripDays)[number]; title: string; items: ScheduledItem[]; cards: ActivityCard[]; dispatch: React.Dispatch<Parameters<typeof tripReducer>[1]>; onSelect: (card: ActivityCard) => void }) {
+function DayColumn({ date, title, items, cards, dispatch, onSelect, dropProjection, activeItemId }: { date: (typeof tripDays)[number]; title: string; items: ScheduledItem[]; cards: ActivityCard[]; dispatch: React.Dispatch<Parameters<typeof tripReducer>[1]>; onSelect: (card: ActivityCard) => void; dropProjection?: DropProjection; activeItemId?: string }) {
   const { setNodeRef, isOver } = useDroppable({ id: `day:${date.date}` });
   const sorted = sortDayItems(items);
+  const isDropTarget = dropProjection?.date === date.date;
+  const displayItems = isDropTarget ? sorted.filter((item) => item.id !== activeItemId) : sorted;
   const cardFor = (item: ScheduledItem) => cards.find((card) => card.id === item.cardId)!;
-  const firstCard = sorted[0] ? cardFor(sorted[0]) : undefined;
-  const lastCard = sorted.at(-1) ? cardFor(sorted.at(-1)!) : undefined;
+  const firstCard = displayItems[0] ? cardFor(displayItems[0]) : undefined;
+  const lastCard = displayItems.at(-1) ? cardFor(displayItems.at(-1)!) : undefined;
   return (
     <section ref={setNodeRef} data-testid="day-column" className={`day-column ${isOver ? "is-over" : ""}`}>
       <header className="day-header">
@@ -200,16 +217,18 @@ function DayColumn({ date, title, items, cards, dispatch, onSelect }: { date: (t
         <div><small>DAY {tripDays.findIndex((day) => day.date === date.date) + 1}</small><EditableDayTitle dateLabel={date.short} title={title} onSave={(nextTitle) => dispatch({ type: "set-day-title", date: date.date, title: nextTitle })} /></div>
       </header>
       <div className="day-route-start"><Hotel size={14} /> {date.date === "2026-07-07" ? "樟宜机场" : hotel.title}</div>
-      {firstCard && firstCard.id !== "arrival" && <RouteRibbon from={date.date === "2026-07-07" ? airport : hotel} to={firstCard} date={date.date} departureTime={sorted[0].startTime} hasLuggage={date.date === "2026-07-07"} />}
-      <SortableContext items={sorted.map((item) => `item:${item.id}`)} strategy={verticalListSortingStrategy}>
+      {firstCard && firstCard.id !== "arrival" && <RouteRibbon from={date.date === "2026-07-07" ? airport : hotel} to={firstCard} date={date.date} departureTime={displayItems[0].startTime} hasLuggage={date.date === "2026-07-07"} />}
+      <SortableContext items={displayItems.map((item) => `item:${item.id}`)} strategy={verticalListSortingStrategy}>
         <div className="day-items">
-          {sorted.map((item, index) => {
+          {displayItems.map((item, index) => {
             const card = cardFor(item);
-            const previous = index > 0 ? cardFor(sorted[index - 1]) : undefined;
-            const previousEnd = previous ? getEndTime(sorted[index - 1].startTime, previous.durationMinutes) : undefined;
+            const previous = index > 0 ? cardFor(displayItems[index - 1]) : undefined;
+            const previousEnd = previous ? getEndTime(displayItems[index - 1].startTime, previous.durationMinutes) : undefined;
             const transfer = previous ? estimateRoutes(previous, card, previousEnd ?? item.startTime).find((route) => route.recommended)?.durationMinutes : undefined;
             return (
-              <div key={item.id}>
+              <Fragment key={item.id}>
+                {isDropTarget && dropProjection.position === index && <DropIndicator />}
+                <div>
                 {previous && <RouteRibbon from={previous} to={card} date={date.date} departureTime={previousEnd!} hasLuggage={card.category === "transport"} />}
                 <ScheduledCard
                   item={item}
@@ -220,13 +239,15 @@ function DayColumn({ date, title, items, cards, dispatch, onSelect }: { date: (t
                   onRemove={() => dispatch({ type: "remove-item", itemId: item.id })}
                   onSelect={() => onSelect(card)}
                 />
-              </div>
+                </div>
+              </Fragment>
             );
           })}
+          {isDropTarget && dropProjection.position >= displayItems.length && <DropIndicator />}
         </div>
       </SortableContext>
-      {sorted.length === 0 && <div className="empty-day"><Plus />把卡片拖到这里</div>}
-      {lastCard && date.date !== "2026-07-10" && <RouteRibbon from={lastCard} to={hotel} date={date.date} departureTime={getEndTime(sorted.at(-1)!.startTime, lastCard.durationMinutes)} />}
+      {displayItems.length === 0 && !isDropTarget && <div className="empty-day"><Plus />把卡片拖到这里</div>}
+      {lastCard && date.date !== "2026-07-10" && <RouteRibbon from={lastCard} to={hotel} date={date.date} departureTime={getEndTime(displayItems.at(-1)!.startTime, lastCard.durationMinutes)} />}
       <div className="day-route-end">{date.date === "2026-07-10" ? <><Plane size={14} /> 16:00 起飞</> : <><Hotel size={14} /> 返回酒店</>}</div>
     </section>
   );
@@ -311,7 +332,14 @@ function CustomActivityDialog({ onClose, onSave }: { onClose: () => void; onSave
   );
 }
 
-function DetailDrawer({ card, onClose, onDelete }: { card: ActivityCard; onClose: () => void; onDelete?: () => void }) {
+function DetailDrawer({ card, onClose, onDuration, onDelete }: { card: ActivityCard; onClose: () => void; onDuration: (durationMinutes: number) => void; onDelete?: () => void }) {
+  const [durationDraft, setDurationDraft] = useState(String(card.durationMinutes));
+  const duration = Number(durationDraft);
+  const durationValid = Number.isInteger(duration) && duration >= 15 && duration <= 720 && duration % 15 === 0;
+  const durationDirty = duration !== card.durationMinutes;
+  const saveDuration = () => {
+    if (durationDirty && durationValid) onDuration(duration);
+  };
   return (
     <aside className="detail-drawer" aria-label={`${card.title} 详情`}>
       <button className="drawer-close" onClick={onClose} aria-label="关闭详情"><X /></button>
@@ -321,7 +349,26 @@ function DetailDrawer({ card, onClose, onDelete }: { card: ActivityCard; onClose
       <p className="drawer-subtitle">{card.subtitle}</p>
       <p className="drawer-description">{card.description}</p>
       <dl className="fact-list">
-        <div><dt><Clock3 />建议时长</dt><dd>{card.durationMinutes} 分钟</dd></div>
+        <div><dt><Clock3 />建议时长</dt><dd className="duration-editor">
+          <input
+            aria-label={`${card.title} 建议时长`}
+            type="number"
+            min="15"
+            max="720"
+            step="15"
+            value={durationDraft}
+            onChange={(event) => setDurationDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") { event.preventDefault(); saveDuration(); }
+              if (event.key === "Escape") { event.preventDefault(); setDurationDraft(String(card.durationMinutes)); }
+            }}
+          />
+          <span>分钟</span>
+          {durationDirty && <span className="duration-actions">
+            <button aria-label={`确认 ${card.title} 建议时长`} disabled={!durationValid} onClick={saveDuration}><Check size={12} /></button>
+            <button aria-label={`取消 ${card.title} 建议时长`} onClick={() => setDurationDraft(String(card.durationMinutes))}><X size={12} /></button>
+          </span>}
+        </dd></div>
         <div><dt><Ticket />家庭预算</dt><dd>{money(card)}</dd></div>
         <div><dt><MapPin />地点</dt><dd>{card.address}</dd></div>
       </dl>
@@ -343,9 +390,11 @@ export function PlannerApp() {
   const sync = useTripSync(state, dispatch);
   const [filter, setFilter] = useState<(typeof filters)[number]["key"]>("all");
   const [query, setQuery] = useState("");
-  const [selected, setSelected] = useState<ActivityCard>();
+  const [selectedCardId, setSelectedCardId] = useState<string>();
   const [customOpen, setCustomOpen] = useState(false);
   const [mobileTab, setMobileTab] = useState<"library" | "plan">("plan");
+  const [activeItemId, setActiveItemId] = useState<string>();
+  const [dropProjection, setDropProjection] = useState<DropProjection>();
   const loadedRef = useRef(false);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
@@ -370,17 +419,56 @@ export function PlannerApp() {
       return haystack.includes(query.toLowerCase());
     });
   }, [state.cards, state.scheduledItems, filter, query]);
+  const selected = state.cards.find((card) => card.id === selectedCardId);
+  const activeDragItem = state.scheduledItems.find((item) => item.id === activeItemId);
+  const activeDragCard = state.cards.find((card) => card.id === activeDragItem?.cardId);
 
-  const onDragEnd = ({ active, over }: DragEndEvent) => {
-    if (!over) return;
+  const clearDragPreview = () => {
+    setActiveItemId(undefined);
+    setDropProjection(undefined);
+  };
+  const onDragStart = ({ active }: DragStartEvent) => {
     const activeId = String(active.id);
+    if (activeId.startsWith("item:")) setActiveItemId(activeId.slice(5));
+  };
+  const onDragOver = ({ active, over }: DragOverEvent) => {
+    const activeId = String(active.id);
+    if (!activeId.startsWith("item:")) return;
+    const translated = active.rect.current.translated;
+    setDropProjection(projectDrop({
+      activeItemId: activeId.slice(5),
+      overId: over ? String(over.id) : undefined,
+      items: state.scheduledItems,
+      activeCenterY: translated ? translated.top + translated.height / 2 : undefined,
+      overTop: over?.rect.top,
+      overHeight: over?.rect.height,
+    }));
+  };
+  const onDragCancel = () => clearDragPreview();
+  const onDragEnd = ({ active, over }: DragEndEvent) => {
+    const activeId = String(active.id);
+    if (activeId.startsWith("item:")) {
+      const translated = active.rect.current.translated;
+      const finalProjection = projectDrop({
+        activeItemId: activeId.slice(5),
+        overId: over ? String(over.id) : undefined,
+        items: state.scheduledItems,
+        activeCenterY: translated ? translated.top + translated.height / 2 : undefined,
+        overTop: over?.rect.top,
+        overHeight: over?.rect.height,
+      }) ?? dropProjection;
+      if (finalProjection) dispatch({ type: "move", itemId: activeId.slice(5), date: finalProjection.date, position: finalProjection.position });
+      clearDragPreview();
+      return;
+    }
+    if (!over) { clearDragPreview(); return; }
     const overId = String(over.id);
     const targetItemId = overId.startsWith("item:") ? overId.slice(5) : undefined;
     const targetItem = targetItemId ? state.scheduledItems.find((item) => item.id === targetItemId) : undefined;
     const date = overId.startsWith("day:") ? overId.slice(4) : targetItem?.date;
-    if (!date) return;
+    if (!date) { clearDragPreview(); return; }
     if (activeId.startsWith("card:")) dispatch({ type: "schedule", cardId: activeId.slice(5), date });
-    if (activeId.startsWith("item:")) dispatch({ type: "move", itemId: activeId.slice(5), date, position: targetItem?.position ?? state.scheduledItems.filter((item) => item.date === date).length });
+    clearDragPreview();
   };
 
   const reset = () => {
@@ -399,7 +487,7 @@ export function PlannerApp() {
   };
 
   return (
-    <DndContext sensors={sensors} onDragEnd={onDragEnd}>
+    <DndContext sensors={sensors} collisionDetection={pointerThenCenter} onDragStart={onDragStart} onDragOver={onDragOver} onDragCancel={onDragCancel} onDragEnd={onDragEnd}>
       <main className="planner-shell">
         <div className="paper-grain" />
         <header className="hero">
@@ -433,7 +521,7 @@ export function PlannerApp() {
             <div className="filter-row">{filters.map((item) => <button key={item.key} className={filter === item.key ? "active" : ""} onClick={() => setFilter(item.key)}>{item.label}</button>)}</div>
             <button className="create-card" onClick={() => setCustomOpen(true)} aria-label="新建自定义活动"><Plus />新建自定义活动<span>名称 · 地点 · 时长 · 图片</span></button>
             <div className="candidate-list">
-              {libraryCards.map((card) => <CandidateCard key={card.id} card={card} onSelect={() => setSelected(card)} onSchedule={(date) => dispatch({ type: "schedule", cardId: card.id, date })} />)}
+              {libraryCards.map((card) => <CandidateCard key={card.id} card={card} onSelect={() => setSelectedCardId(card.id)} onSchedule={(date) => dispatch({ type: "schedule", cardId: card.id, date })} />)}
               {libraryCards.length === 0 && <div className="empty-library"><Check />这些卡都已经上路了</div>}
             </div>
           </aside>
@@ -444,15 +532,18 @@ export function PlannerApp() {
               <p><Info />点击交通线比较步行、公交与打车；OneMap 未连接时使用本地估时</p>
             </div>
             <div className="days-board">
-              {tripDays.map((day) => <DayColumn key={day.date} date={day} title={state.dayTitles[day.date] ?? day.title} items={state.scheduledItems.filter((item) => item.date === day.date)} cards={state.cards} dispatch={dispatch} onSelect={setSelected} />)}
+              {tripDays.map((day) => <DayColumn key={day.date} date={day} title={state.dayTitles[day.date] ?? day.title} items={state.scheduledItems.filter((item) => item.date === day.date)} cards={state.cards} dispatch={dispatch} onSelect={(card) => setSelectedCardId(card.id)} dropProjection={dropProjection} activeItemId={activeItemId} />)}
             </div>
           </section>
         </div>
 
         <footer className="planner-footer"><span>狮城小队 · REV {state.revision}</span><p>票价核对于 2026-06-27，订票前请再次确认。</p><span>ASIA / SINGAPORE</span></footer>
       </main>
-      {customOpen && <CustomActivityDialog onClose={() => setCustomOpen(false)} onSave={(card) => { dispatch({ type: "add-card", card }); setCustomOpen(false); setSelected(card); }} />}
-      {selected && <DetailDrawer card={selected} onClose={() => setSelected(undefined)} onDelete={selected.custom ? () => { dispatch({ type: "delete-card", cardId: selected.id }); setSelected(undefined); } : undefined} />}
+      <DragOverlay>
+        {activeDragItem && activeDragCard ? <div className="drag-overlay-card"><small>{activeDragItem.startTime}</small><strong>{activeDragCard.title}</strong><span>{activeDragCard.durationMinutes} 分钟</span></div> : null}
+      </DragOverlay>
+      {customOpen && <CustomActivityDialog onClose={() => setCustomOpen(false)} onSave={(card) => { dispatch({ type: "add-card", card }); setCustomOpen(false); setSelectedCardId(card.id); }} />}
+      {selected && <DetailDrawer key={`${selected.id}:${selected.durationMinutes}`} card={selected} onClose={() => setSelectedCardId(undefined)} onDuration={(durationMinutes) => dispatch({ type: "set-card-duration", cardId: selected.id, durationMinutes })} onDelete={selected.custom ? () => { dispatch({ type: "delete-card", cardId: selected.id }); setSelectedCardId(undefined); } : undefined} />}
     </DndContext>
   );
 }

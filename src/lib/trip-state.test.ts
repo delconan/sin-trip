@@ -99,4 +99,25 @@ describe("trip state", () => {
     expect(added.cards.some((item) => item.id === "custom-one")).toBe(true);
     expect(tripReducer(added, { type: "delete-card", cardId: "custom-one" }).cards.some((item) => item.id === "custom-one")).toBe(false);
   });
+
+  it("updates a card-level suggested duration once", () => {
+    const state = createInitialState();
+    const next = tripReducer(state, {
+      type: "set-card-duration",
+      cardId: "hotel-rest",
+      durationMinutes: 120,
+    });
+
+    expect(next.cards.find((card) => card.id === "hotel-rest")?.durationMinutes).toBe(120);
+    expect(next.revision).toBe(state.revision + 1);
+  });
+
+  it("accepts only 15-minute durations from 15 through 720 minutes", () => {
+    const state = createInitialState();
+    expect(tripReducer(state, { type: "set-card-duration", cardId: "hotel-rest", durationMinutes: 15 }).cards.find((card) => card.id === "hotel-rest")?.durationMinutes).toBe(15);
+    expect(tripReducer(state, { type: "set-card-duration", cardId: "hotel-rest", durationMinutes: 720 }).cards.find((card) => card.id === "hotel-rest")?.durationMinutes).toBe(720);
+    for (const durationMinutes of [10, 17, 735]) {
+      expect(() => tripReducer(state, { type: "set-card-duration", cardId: "hotel-rest", durationMinutes })).toThrow("15–720");
+    }
+  });
 });

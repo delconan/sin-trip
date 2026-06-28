@@ -6,6 +6,7 @@ export type TripAction =
   | { type: "schedule"; cardId: string; date: string }
   | { type: "move"; itemId: string; date: string; position: number }
   | { type: "set-time"; itemId: string; startTime: string }
+  | { type: "set-card-duration"; cardId: string; durationMinutes: number }
   | { type: "set-day-title"; date: string; title: string }
   | { type: "remove-item"; itemId: string }
   | { type: "add-card"; card: ActivityCard }
@@ -55,6 +56,18 @@ export function tripReducer(state: TripState, action: TripAction): TripState {
       ...state,
       revision: state.revision + 1,
       dayTitles: { ...state.dayTitles, [action.date]: title },
+    };
+  }
+  if (action.type === "set-card-duration") {
+    const duration = action.durationMinutes;
+    if (!Number.isInteger(duration) || duration < 15 || duration > 720 || duration % 15 !== 0) {
+      throw new Error("建议时长必须为 15–720 分钟，并落在 15 分钟刻度");
+    }
+    if (!state.cards.some((card) => card.id === action.cardId)) return state;
+    return {
+      ...state,
+      revision: state.revision + 1,
+      cards: state.cards.map((card) => card.id === action.cardId ? { ...card, durationMinutes: duration } : card),
     };
   }
   if (action.type === "schedule") {
